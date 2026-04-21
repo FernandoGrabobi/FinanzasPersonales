@@ -237,7 +237,7 @@ window.editTransaction = function(id) {
 
 window.deleteTransaction = id => openConfirm('transaction', id);
 
-function renderTransactions() {
+window.renderTransactions = function() {
   const search      = (document.getElementById('searchInput')?.value || '').toLowerCase();
   const typeFilter  = document.getElementById('filterType')?.value  || '';
   const catFilter   = document.getElementById('filterCategory')?.value || '';
@@ -271,7 +271,7 @@ function renderTransactions() {
     </tr>`).join('');
 }
 
-function populateCategoryFilter() {
+window.populateCategoryFilter = function() {
   const sel = document.getElementById('filterCategory');
   if (!sel) return;
   const used = [...new Set(state.transactions.map(t=>t.category))].sort();
