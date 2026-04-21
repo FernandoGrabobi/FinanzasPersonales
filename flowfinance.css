@@ -514,3 +514,29 @@ a { text-decoration: none; color: inherit; }
 }
 .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 99; display: none; }
 .overlay.show { display: block; }
+
+/* ===== FOOTER ===== */
+.app-footer {
+  margin-left: 240px;
+  padding: 20px 32px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.app-footer-text { font-size: 0.8rem; color: var(--text3); }
+.app-footer-links { display: flex; align-items: center; gap: 16px; }
+.app-footer-link {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 0.8rem; color: var(--text2);
+  text-decoration: none; transition: color var(--transition);
+}
+.app-footer-link:hover { color: var(--green); }
+.app-footer-link svg { flex-shrink: 0; }
+
+@media (max-width: 768px) {
+  .app-footer { margin-left: 0; padding: 16px; justify-content: center; text-align: center; }
+}
