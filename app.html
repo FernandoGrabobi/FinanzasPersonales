@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlowFinance — Mi cuenta</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./flowfinance.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ============================================================
+  FIREBASE — reemplazá con tu configuración real
+  ============================================================ -->
+<script type="module">
+import { initializeApp }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, onAuthStateChanged, signOut }
+  from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import {
+  getFirestore, collection, doc,
+  addDoc, setDoc, updateDoc, deleteDoc,
+  getDocs, query, where, orderBy, serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+
+// ── Config (igual que en index.html) ─────────────────────────
+const firebaseConfig = {
+  apiKey: "AIzaSyDSNQRgkML8GRarOJK5Ulax2L4nsrcRFBk",
+  authDomain: "finanzas-aabd2.firebaseapp.com",
+  projectId: "finanzas-aabd2",
+  storageBucket: "finanzas-aabd2.firebasestorage.app",
+  messagingSenderId: "375877661677",
+  appId: "1:375877661677:web:e21810450617d48067ade4"
+};
+
+const app  = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db   = getFirestore(app);
+
+// ── Rutas de Firestore por usuario ──────────────────────────
+// Estructura: users/{uid}/transactions/{docId}
+//             users/{uid}/budgets/{docId}
+//             users/{uid}/creditCards/{docId}
+//             users/{uid}/savings/{docId}
+let uid = null;
+const col = name => collection(db, 'users', uid, name);
+const ref = (name, id) => doc(db, 'users', uid, name, id);
+
+// ── Guard: si no está logueado → redirigir ───────────────────
+onAuthStateChanged(auth, async user => {
+  if (!user) { window.location.href = 'index.html'; return; }
+  uid = user.uid;
+
+  // Mostrar nombre/email en topbar
+  const display = user.displayName || user.email.split('@')[0];
+  document.getElementById('userDisplay').textContent = display;
+  document.getElementById('userAvatar').textContent  = display[0].toUpperCase();
+
+  // Cargar tema guardado
+  const theme = localStorage.getItem('ff_theme_' + uid) || 'light';
+  document.documentElement.setAttribute('data-theme', theme);
+  document.getElementById('themeIcon').textContent  = theme === 'dark' ? '☀️' : '🌙';
+  document.getElementById('themeLabel').textContent = theme === 'dark' ? 'Modo claro' : 'Modo oscuro';
+
+  // Mostrar app y cargar datos
+  document.getElementById('loadingScreen').style.display = 'none';
+  document.getElementById('appWrapper').style.display    = 'flex';
+  await loadAllData();
+  renderDashboard();
+});
+
+// ── Logout ───────────────────────────────────────────────────
+window.doLogout = async () => {
+  await signOut(auth);
+  window.location.href = 'index.html';
+};
+
+// ============================================================
+// ESTADO LOCAL (caché en memoria)
+// ============================================================
+let state = { transactions: [], budgets: [], creditCards: [], savings: [] };
+let selectedType = 'income';
+let pendingDeleteType = null, pendingDeleteId = null;
+let monthlyChart = null, categoryChart = null;
+
+const CAT_COLORS = {
+  'Alimentación':'#2d7a4f','Transporte':'#2563a8','Vivienda':'#7c3aed','Salud':'#e05a4a',
+  'Educación':'#0891b2','Entretenimiento':'#d97706','Ropa':'#db2777','Servicios':'#059669',
+  'Tecnología':'#4338ca','Restaurantes':'#c2410c','Viajes':'#0284c7','Mascotas':'#65a30d',
+  'Sueldo':'#16a34a','Freelance':'#ca8a04','Inversiones':'#2563a8','Otros':'#6b7280'
+};
+
+// ============================================================
+// FIRESTORE — CRUD HELPERS
+// ============================================================
+async function loadAllData() {
+  showLoading(true);
+  try {
+    const [txSnap, budgSnap, cardSnap, savSnap] = await Promise.all([
+      getDocs(query(col('transactions'), orderBy('date','desc'))),
+      getDocs(col('budgets')),
+      getDocs(col('creditCards')),
+      getDocs(col('savings'))
+    ]);
+    state.transactions = txSnap.docs.map(d  => ({ id: d.id, ...d.data() }));
+    state.budgets       = budgSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.creditCards   = cardSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.savings       = savSnap.docs.map(d  => ({ id: d.id, ...d.data() }));
+  } catch(e) {
+    showToast('Error cargando datos: ' + e.message, 'error');
+  }
+  showLoading(false);
+}
+
+// Agregar documento y devolver con id
+async function fsAdd(colName, data) {
+  const docRef = await addDoc(col(colName), { ...data, createdAt: serverTimestamp() });
+  return { id: docRef.id, ...data };
+}
+// Actualizar
+async function fsUpdate(colName, id, data) {
+  await updateDoc(ref(colName, id), data);
+}
+// Eliminar
+async function fsDelete(colName, id) {
+  await deleteDoc(ref(colName, id));
+}
+
+function showLoading(on) {
+  document.getElementById('globalSpinner').style.display = on ? 'flex' : 'none';
+}
+
+// ============================================================
+// NAVEGACIÓN
+// ============================================================
+window.showPage = function(id, el) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + id).classList.add('active');
+  if (el) el.classList.add('active');
+  const titles = { dashboard:'Dashboard', transactions:'Movimientos', budget:'Presupuesto', cards:'Tarjetas & Cuotas', savings:'Ahorros' };
+  document.getElementById('pageTitle').textContent = titles[id] || id;
+  closeSidebar();
+  if (id === 'dashboard')    renderDashboard();
+  if (id === 'transactions') { renderTransactions(); populateCategoryFilter(); }
+  if (id === 'budget')       renderBudget();
+  if (id === 'cards')        renderCards();
+  if (id === 'savings')      renderSavings();
+};
+
+window.openSidebar  = () => { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('show'); };
+window.closeSidebar = () => { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('show'); };
+
+// ============================================================
+// MODALS
+// ============================================================
+window.openModal  = id => { if (id === 'transactionModal') resetTransactionForm(); document.getElementById(id).classList.add('open'); };
+window.closeModal = id => document.getElementById(id).classList.remove('open');
+
+document.querySelectorAll('.modal-overlay').forEach(o =>
+  o.addEventListener('click', function(e) { if (e.target === this) closeModal(this.id); })
+);
+
+// ============================================================
+// TRANSACCIONES
+// ============================================================
+window.selectType = function(type) {
+  selectedType = type;
+  document.getElementById('typeIncome').classList.toggle('selected',  type === 'income');
+  document.getElementById('typeExpense').classList.toggle('selected', type === 'expense');
+};
+
+function resetTransactionForm() {
+  document.getElementById('editTransactionId').value = '';
+  document.getElementById('transactionModalTitle').textContent = 'Nuevo movimiento';
+  document.getElementById('txDate').value        = new Date().toISOString().split('T')[0];
+  document.getElementById('txAmount').value      = '';
+  document.getElementById('txCategory').value    = '';
+  document.getElementById('txPayment').value     = '';
+  document.getElementById('txNecessary').value   = 'yes';
+  document.getElementById('txDescription').value = '';
+  selectType('income');
+}
+
+window.saveTransaction = async function() {
+  const date        = document.getElementById('txDate').value;
+  const amount      = parseFloat(document.getElementById('txAmount').value);
+  const category    = document.getElementById('txCategory').value;
+  const payment     = document.getElementById('txPayment').value;
+  const necessary   = document.getElementById('txNecessary').value;
+  const description = document.getElementById('txDescription').value.trim();
+  if (!date || !amount || amount <= 0 || !category || !description) {
+    showToast('Completá todos los campos requeridos.','error'); return;
+  }
+  const btn = document.getElementById('saveTxBtn');
+  btn.disabled = true; btn.textContent = 'Guardando…';
+
+  const editId = document.getElementById('editTransactionId').value;
+  try {
+    if (editId) {
+      const data = { date, amount, category, payment, necessary, description, type: selectedType };
+      await fsUpdate('transactions', editId, data);
+      const idx = state.transactions.findIndex(t => t.id === editId);
+      if (idx !== -1) state.transactions[idx] = { id: editId, ...data };
+      showToast('Movimiento actualizado ✓','success');
+    } else {
+      const data = { date, amount, category, payment, necessary, description, type: selectedType };
+      const newDoc = await fsAdd('transactions', data);
+      state.transactions.unshift(newDoc);
+      showToast('Movimiento agregado ✓','success');
+    }
+    closeModal('transactionModal');
+    renderDashboard();
+    renderTransactions();
+    checkBudgetAlerts();
+  } catch(e) {
+    showToast('Error: ' + e.message,'error');
+  }
+  btn.disabled = false; btn.textContent = 'Guardar';
+};
+
+window.editTransaction = function(id) {
+  const tx = state.transactions.find(t => t.id === id);
+  if (!tx) return;
+  document.getElementById('editTransactionId').value = tx.id;
+  document.getElementById('transactionModalTitle').textContent = 'Editar movimiento';
+  document.getElementById('txDate').value        = tx.date;
+  document.getElementById('txAmount').value      = tx.amount;
+  document.getElementById('txCategory').value    = tx.category;
+  document.getElementById('txPayment').value     = tx.payment;
+  document.getElementById('txNecessary').value   = tx.necessary;
+  document.getElementById('txDescription').value = tx.description;
+  selectType(tx.type);
+  openModal('transactionModal');
+};
+
+window.deleteTransaction = id => openConfirm('transaction', id);
+
+function renderTransactions() {
+  const search      = (document.getElementById('searchInput')?.value || '').toLowerCase();
+  const typeFilter  = document.getElementById('filterType')?.value  || '';
+  const catFilter   = document.getElementById('filterCategory')?.value || '';
+  const monthFilter = document.getElementById('filterMonth')?.value || '';
+
+  let txs = [...state.transactions].sort((a,b) => new Date(b.date)-new Date(a.date));
+  if (search)      txs = txs.filter(t => t.description.toLowerCase().includes(search) || t.category.toLowerCase().includes(search));
+  if (typeFilter)  txs = txs.filter(t => t.type === typeFilter);
+  if (catFilter)   txs = txs.filter(t => t.category === catFilter);
+  if (monthFilter) txs = txs.filter(t => t.date.startsWith(monthFilter));
+
+  const tbody = document.getElementById('transactionsBody');
+  const empty = document.getElementById('transactionsEmpty');
+  if (!tbody) return;
+  if (txs.length === 0) { tbody.innerHTML = ''; if (empty) empty.style.display='block'; return; }
+  if (empty) empty.style.display = 'none';
+
+  tbody.innerHTML = txs.map(t => `
+    <tr>
+      <td>${formatDate(t.date)}</td>
+      <td><strong>${t.description}</strong></td>
+      <td><span class="badge" style="background:${CAT_COLORS[t.category]||'#888'}22;color:${CAT_COLORS[t.category]||'#888'}">${t.category}</span></td>
+      <td>${t.payment||'—'}</td>
+      <td><span class="badge ${t.type==='income'?'badge-income':'badge-expense'}">${t.type==='income'?'↑ Ingreso':'↓ Gasto'}</span></td>
+      <td><span class="badge ${t.necessary==='yes'?'badge-yes':'badge-no'}">${t.necessary==='yes'?'Sí':'No'}</span></td>
+      <td class="${t.type==='income'?'amount-income':'amount-expense'}">${t.type==='income'?'+':'-'}${formatCurrency(t.amount)}</td>
+      <td>
+        <button class="action-btn edit-btn"   onclick="editTransaction('${t.id}')">✏️</button>
+        <button class="action-btn delete-btn" onclick="deleteTransaction('${t.id}')">🗑️</button>
+      </td>
+    </tr>`).join('');
+}
+
+function populateCategoryFilter() {
+  const sel = document.getElementById('filterCategory');
+  if (!sel) return;
+  const used = [...new Set(state.transactions.map(t=>t.category))].sort();
+  sel.innerHTML = '<option value="">Todas las categorías</option>' + used.map(c=>`<option value="${c}">${c}</option>`).join('');
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+function getMonthTransactions() {
+  const now = new Date();
+  const ym  = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  return state.transactions.filter(t => t.date.startsWith(ym));
+}
+
+function renderDashboard() {
+  const monthly = getMonthTransactions();
+  const income  = monthly.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const expense = monthly.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const balance = income - expense;
+
+  document.getElementById('totalIncome').textContent  = formatCurrency(income);
+  document.getElementById('totalExpense').textContent = formatCurrency(expense);
+  document.getElementById('totalBalance').textContent = formatCurrency(balance);
+  document.getElementById('incomeCount').textContent  = `${monthly.filter(t=>t.type==='income').length} transacciones`;
+  document.getElementById('expenseCount').textContent = `${monthly.filter(t=>t.type==='expense').length} transacciones`;
+  document.getElementById('balanceStatus').textContent = balance >= 0 ? '✅ Buen estado' : '⚠️ Déficit';
+
+  const recent = [...state.transactions].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5);
+  const tbody  = document.getElementById('recentTransactionsBody');
+  if (tbody) tbody.innerHTML = recent.length === 0
+    ? '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:30px">Sin movimientos aún</td></tr>'
+    : recent.map(t => `
+      <tr>
+        <td>${formatDate(t.date)}</td>
+        <td>${t.description}</td>
+        <td><span class="badge" style="background:${CAT_COLORS[t.category]||'#888'}22;color:${CAT_COLORS[t.category]||'#888'}">${t.category}</span></td>
+        <td><span class="badge ${t.type==='income'?'badge-income':'badge-expense'}">${t.type==='income'?'↑':'↓'} ${t.type==='income'?'Ingreso':'Gasto'}</span></td>
+        <td class="${t.type==='income'?'amount-income':'amount-expense'}">${t.type==='income'?'+':'-'}${formatCurrency(t.amount)}</td>
+      </tr>`).join('');
+
+  renderMonthlyChart();
+  renderCategoryChart();
+  checkBudgetAlerts();
+}
+
+function renderMonthlyChart() {
+  const ctx = document.getElementById('monthlyChart');
+  if (!ctx) return;
+  const months=[], incomes=[], expenses=[];
+  for (let i=5;i>=0;i--) {
+    const d=new Date(); d.setMonth(d.getMonth()-i);
+    const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    months.push(d.toLocaleDateString('es',{month:'short',year:'2-digit'}));
+    const txs=state.transactions.filter(t=>t.date.startsWith(ym));
+    incomes.push(txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0));
+    expenses.push(txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0));
+  }
+  if (monthlyChart) { monthlyChart.destroy(); monthlyChart=null; }
+  monthlyChart = new Chart(ctx, {
+    type:'bar',
+    data:{ labels:months, datasets:[
+      {label:'Ingresos',data:incomes,backgroundColor:'rgba(45,122,79,0.75)',borderRadius:6,borderSkipped:false},
+      {label:'Gastos',data:expenses,backgroundColor:'rgba(192,57,43,0.75)',borderRadius:6,borderSkipped:false}
+    ]},
+    options:{ responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{color:'#888'}}},
+      scales:{
+        x:{grid:{display:false},ticks:{color:'#888'}},
+        y:{grid:{color:'rgba(128,128,128,0.1)'},ticks:{color:'#888',callback:v=>'$'+v.toLocaleString()},beginAtZero:true}
+      }
+    }
+  });
+}
+
+function renderCategoryChart() {
+  const wrapper = document.getElementById('categoryChartWrapper');
+  if (!wrapper) return;
+  const monthly = getMonthTransactions().filter(t=>t.type==='expense');
+  const catMap={};
+  monthly.forEach(t=>{catMap[t.category]=(catMap[t.category]||0)+t.amount;});
+  const cats=Object.keys(catMap), vals=Object.values(catMap);
+  if (categoryChart) { categoryChart.destroy(); categoryChart=null; }
+  if (cats.length===0) {
+    wrapper.innerHTML='<div class="empty-state" style="padding:40px 0"><div class="empty-state-icon">📊</div><p>Sin gastos este mes</p></div>'; return;
+  }
+  if (!document.getElementById('categoryChart')) {
+    const cv=document.createElement('canvas'); cv.id='categoryChart'; wrapper.appendChild(cv);
+  }
+  categoryChart = new Chart(document.getElementById('categoryChart'), {
+    type:'doughnut',
+    data:{labels:cats,datasets:[{data:vals,backgroundColor:cats.map(c=>(CAT_COLORS[c]||'#888')+'cc'),borderWidth:2,borderColor:getComputedStyle(document.documentElement).getPropertyValue('--surface').trim()||'#fff'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:'right',labels:{color:'#888',boxWidth:12,padding:10,font:{size:11}}}},cutout:'65%'}
+  });
+}
+
+// ============================================================
+// PRESUPUESTO
+// ============================================================
+window.saveBudget = async function() {
+  const category = document.getElementById('budgetCategory').value;
+  const amount   = parseFloat(document.getElementById('budgetAmount').value);
+  if (!category || !amount || amount<=0) { showToast('Completá todos los campos.','error'); return; }
+  const btn = document.getElementById('saveBudgetBtn');
+  btn.disabled=true; btn.textContent='Guardando…';
+  try {
+    const existing = state.budgets.find(b=>b.category===category);
+    if (existing) {
+      await fsUpdate('budgets', existing.id, { amount });
+      existing.amount = amount;
+    } else {
+      const newDoc = await fsAdd('budgets', { category, amount });
+      state.budgets.push(newDoc);
+    }
+    closeModal('budgetModal');
+    renderBudget();
+    showToast('Presupuesto guardado ✓','success');
+    document.getElementById('budgetCategory').value='';
+    document.getElementById('budgetAmount').value='';
+  } catch(e) { showToast('Error: '+e.message,'error'); }
+  btn.disabled=false; btn.textContent='Guardar';
+};
+
+function renderBudget() {
+  const grid=document.getElementById('budgetGrid'), empty=document.getElementById('budgetEmpty');
+  if (!grid) return;
+  if (state.budgets.length===0) { grid.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+  const monthly=getMonthTransactions().filter(t=>t.type==='expense');
+  const catSpend={};
+  monthly.forEach(t=>{catSpend[t.category]=(catSpend[t.category]||0)+t.amount;});
+  grid.innerHTML = state.budgets.map(b=>{
+    const spent=catSpend[b.category]||0, pct=Math.min((spent/b.amount)*100,100), diff=b.amount-spent;
+    const fc=pct<70?'ok':pct<100?'warn':'over';
+    return `<div class="budget-item">
+      <div class="budget-header"><div class="budget-cat">${b.category}</div><button class="action-btn delete-btn" onclick="deleteBudget('${b.id}')">🗑️</button></div>
+      <div class="budget-amounts">${formatCurrency(spent)} gastado de ${formatCurrency(b.amount)}</div>
+      <div class="progress-bar"><div class="progress-fill ${fc}" style="width:${pct}%"></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div class="budget-diff ${diff>=0?'positive':'negative'}">${diff>=0?'✅ Disponible: '+formatCurrency(diff):'🚨 Excedido: '+formatCurrency(Math.abs(diff))}</div>
+        <span class="stat-pill ${pct<100?'pill-green':'pill-red'}">${Math.round(pct)}%</span>
+      </div></div>`;
+  }).join('');
+}
+
+window.deleteBudget = id => openConfirm('budget', id);
+
+function checkBudgetAlerts() {
+  const container=document.getElementById('budgetAlerts'); if (!container) return;
+  const monthly=getMonthTransactions().filter(t=>t.type==='expense'), catSpend={};
+  monthly.forEach(t=>{catSpend[t.category]=(catSpend[t.category]||0)+t.amount;});
+  const exceeded=state.budgets.filter(b=>(catSpend[b.category]||0)>b.amount);
+  container.innerHTML=exceeded.map(b=>`<div class="budget-alert">⚠️ Superaste el presupuesto de <strong>${b.category}</strong>: gastaste ${formatCurrency(catSpend[b.category])} de ${formatCurrency(b.amount)}</div>`).join('');
+}
+
+// ============================================================
+// TARJETAS
+// ============================================================
+window.calcInstallment = function() {
+  const total=parseFloat(document.getElementById('cardTotal').value)||0;
+  const inst=parseInt(document.getElementById('cardInstallments').value)||0;
+  if (total>0&&inst>0) { document.getElementById('cardInstallmentValue').value=(total/inst).toFixed(2); document.getElementById('cardRemaining').value=inst; }
+};
+
+window.saveCard = async function() {
+  const bank=document.getElementById('cardBank').value.trim();
+  const desc=document.getElementById('cardDesc').value.trim();
+  const total=parseFloat(document.getElementById('cardTotal').value);
+  const installments=parseInt(document.getElementById('cardInstallments').value);
+  const remaining=parseInt(document.getElementById('cardRemaining').value);
+  const value=parseFloat(document.getElementById('cardInstallmentValue').value);
+  if (!bank||!desc||!total||!installments||!remaining) { showToast('Completá todos los campos.','error'); return; }
+  const btn=document.getElementById('saveCardBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  try {
+    const newDoc=await fsAdd('creditCards',{bank,desc,total,installments,remaining,value});
+    state.creditCards.push(newDoc);
+    closeModal('cardModal'); renderCards();
+    showToast('Tarjeta/cuota registrada ✓','success');
+    ['cardBank','cardDesc','cardTotal','cardInstallments','cardRemaining','cardInstallmentValue'].forEach(id=>document.getElementById(id).value='');
+  } catch(e){showToast('Error: '+e.message,'error');}
+  btn.disabled=false; btn.textContent='Guardar';
+};
+
+function renderCards() {
+  const grid=document.getElementById('cardsGrid'), empty=document.getElementById('cardsEmpty');
+  const upcomingList=document.getElementById('upcomingList'), upcomingEmpty=document.getElementById('upcomingEmpty');
+  if (!grid) return;
+  if (state.creditCards.length===0) { grid.innerHTML=''; empty.style.display='block'; upcomingList.innerHTML=''; upcomingEmpty.style.display='block'; return; }
+  empty.style.display='none';
+  grid.innerHTML=state.creditCards.map(c=>`
+    <div class="credit-card-item">
+      <div class="card-bank">${c.bank}</div>
+      <div class="card-amount">${formatCurrency(c.value)}</div>
+      <div class="card-sub">por cuota</div>
+      <div class="card-installments">
+        <div><div class="card-field-label">Descripción</div><div class="card-field-value">${c.desc}</div></div>
+        <div><div class="card-field-label">Cuotas restantes</div><div class="card-field-value">${c.remaining} / ${c.installments}</div></div>
+      </div>
+      <div style="margin-top:12px"><div class="progress-bar" style="background:rgba(255,255,255,0.15)">
+        <div class="progress-fill ok" style="width:${Math.round(((c.installments-c.remaining)/c.installments)*100)}%;background:rgba(255,255,255,0.6)"></div>
+      </div></div>
+      <div class="card-actions">
+        <button class="card-action-btn" onclick="payInstallment('${c.id}')">✓ Pagar cuota</button>
+        <button class="card-action-btn" onclick="deleteCard('${c.id}')">🗑️ Eliminar</button>
+      </div>
+    </div>`).join('');
+  upcomingList.innerHTML=state.creditCards.filter(c=>c.remaining>0).map(c=>`
+    <div class="upcoming-item">
+      <div class="upcoming-info"><div class="upcoming-name">${c.desc}</div><div class="upcoming-meta">${c.bank} · ${c.remaining} cuotas restantes</div></div>
+      <div class="upcoming-amount">${formatCurrency(c.value)}</div>
+    </div>`).join('');
+  upcomingEmpty.style.display=state.creditCards.filter(c=>c.remaining>0).length===0?'block':'none';
+}
+
+window.payInstallment = async function(id) {
+  const idx=state.creditCards.findIndex(c=>c.id===id);
+  if (idx!==-1&&state.creditCards[idx].remaining>0) {
+    const newRem=state.creditCards[idx].remaining-1;
+    await fsUpdate('creditCards',id,{remaining:newRem});
+    state.creditCards[idx].remaining=newRem;
+    showToast(newRem===0?'🎉 ¡Cuota finalizada!':'Cuota pagada ✓','success');
+    renderCards();
+  }
+};
+window.deleteCard = id => openConfirm('card', id);
+
+// ============================================================
+// AHORROS
+// ============================================================
+window.saveSaving = async function() {
+  const name=document.getElementById('savingName').value.trim();
+  const emoji=document.getElementById('savingEmoji').value||'🎯';
+  const target=parseFloat(document.getElementById('savingTarget').value);
+  const current=parseFloat(document.getElementById('savingCurrent').value)||0;
+  const editId=document.getElementById('editSavingId').value;
+  if (!name||!target||target<=0){showToast('Completá todos los campos.','error');return;}
+  const btn=document.getElementById('saveSavingBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  try {
+    if (editId) {
+      const data={name,emoji,target,current};
+      await fsUpdate('savings',editId,data);
+      const idx=state.savings.findIndex(s=>s.id===editId);
+      if (idx!==-1) state.savings[idx]={...state.savings[idx],...data};
+      showToast('Objetivo actualizado ✓','success');
+    } else {
+      const newDoc=await fsAdd('savings',{name,emoji,target,current});
+      state.savings.push(newDoc);
+      showToast('Objetivo creado ✓','success');
+    }
+    closeModal('savingModal'); renderSavings();
+    document.getElementById('editSavingId').value='';
+  } catch(e){showToast('Error: '+e.message,'error');}
+  btn.disabled=false; btn.textContent='Guardar';
+};
+
+function renderSavings() {
+  const grid=document.getElementById('savingsGrid'), empty=document.getElementById('savingsEmpty');
+  if (!grid) return;
+  if (state.savings.length===0){grid.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  grid.innerHTML=state.savings.map(s=>{
+    const pct=Math.min((s.current/s.target)*100,100), fc=pct<50?'ok':pct<90?'warn':'ok';
+    return `<div class="saving-item">
+      <div class="saving-emoji">${s.emoji}</div>
+      <div class="saving-name">${s.name}</div>
+      <div class="saving-amounts">${formatCurrency(s.current)} de ${formatCurrency(s.target)}</div>
+      <div class="saving-percent"><span>Progreso</span><strong>${Math.round(pct)}%</strong></div>
+      <div class="progress-bar"><div class="progress-fill ${fc}" style="width:${pct}%"></div></div>
+      ${pct>=100?'<div style="color:var(--green);font-size:0.85rem;font-weight:600;margin-top:6px">🎉 ¡Meta alcanzada!</div>':`<div style="font-size:0.78rem;color:var(--text3);margin-top:4px">Faltan ${formatCurrency(s.target-s.current)}</div>`}
+      <div class="saving-actions">
+        <button class="btn btn-secondary btn-sm" onclick="editSaving('${s.id}')">✏️ Editar</button>
+        <button class="btn btn-danger btn-sm"    onclick="deleteSaving('${s.id}')">🗑️</button>
+      </div></div>`;
+  }).join('');
+}
+
+window.editSaving = function(id) {
+  const s=state.savings.find(sv=>sv.id===id); if (!s) return;
+  document.getElementById('editSavingId').value=s.id;
+  document.getElementById('savingModalTitle').textContent='Editar objetivo';
+  document.getElementById('savingName').value=s.name;
+  document.getElementById('savingEmoji').value=s.emoji;
+  document.getElementById('savingTarget').value=s.target;
+  document.getElementById('savingCurrent').value=s.current;
+  openModal('savingModal');
+};
+window.deleteSaving = id => openConfirm('saving', id);
+
+// ============================================================
+// CONFIRM / DELETE
+// ============================================================
+function openConfirm(type,id) { pendingDeleteType=type; pendingDeleteId=id; document.getElementById('confirmDialog').classList.add('open'); }
+window.closeConfirm = () => { pendingDeleteType=null; pendingDeleteId=null; document.getElementById('confirmDialog').classList.remove('open'); };
+window.confirmDelete = async function() {
+  const btn=document.getElementById('confirmDeleteBtn'); btn.disabled=true; btn.textContent='Eliminando…';
+  try {
+    if (pendingDeleteType==='transaction') {
+      await fsDelete('transactions',pendingDeleteId);
+      state.transactions=state.transactions.filter(t=>t.id!==pendingDeleteId);
+      renderTransactions(); renderDashboard(); showToast('Movimiento eliminado','success');
+    } else if (pendingDeleteType==='budget') {
+      await fsDelete('budgets',pendingDeleteId);
+      state.budgets=state.budgets.filter(b=>b.id!==pendingDeleteId);
+      renderBudget(); showToast('Presupuesto eliminado','success');
+    } else if (pendingDeleteType==='card') {
+      await fsDelete('creditCards',pendingDeleteId);
+      state.creditCards=state.creditCards.filter(c=>c.id!==pendingDeleteId);
+      renderCards(); showToast('Tarjeta eliminada','success');
+    } else if (pendingDeleteType==='saving') {
+      await fsDelete('savings',pendingDeleteId);
+      state.savings=state.savings.filter(s=>s.id!==pendingDeleteId);
+      renderSavings(); showToast('Objetivo eliminado','success');
+    }
+  } catch(e){showToast('Error: '+e.message,'error');}
+  btn.disabled=false; btn.textContent='Eliminar';
+  closeConfirm();
+};
+
+// ============================================================
+// TOAST
+// ============================================================
+function showToast(msg,type='success') {
+  const icons={success:'✅',error:'❌',warning:'⚠️'};
+  const t=document.createElement('div'); t.className=`toast ${type}`;
+  t.innerHTML=`<span>${icons[type]}</span> ${msg}`;
+  document.getElementById('toastContainer').appendChild(t);
+  setTimeout(()=>{t.style.animation='slideOut 0.3s ease forwards';setTimeout(()=>t.remove(),300);},3000);
+}
+
+// ============================================================
+// TEMA
+// ============================================================
+window.toggleTheme = function() {
+  const isDark=document.documentElement.getAttribute('data-theme')==='dark';
+  const next=isDark?'light':'dark';
+  document.documentElement.setAttribute('data-theme',next);
+  document.getElementById('themeIcon').textContent=isDark?'🌙':'☀️';
+  document.getElementById('themeLabel').textContent=isDark?'Modo oscuro':'Modo claro';
+  if (uid) localStorage.setItem('ff_theme_'+uid,next);
+  setTimeout(()=>{renderMonthlyChart();renderCategoryChart();},100);
+};
+
+// ============================================================
+// EXPORT CSV
+// ============================================================
+window.exportCSV = function() {
+  if (state.transactions.length===0){showToast('No hay movimientos para exportar.','warning');return;}
+  const headers=['Fecha','Descripción','Tipo','Categoría','Medio de pago','¿Necesario?','Monto'];
+  const rows=state.transactions.map(t=>[t.date,`"${t.description}"`,t.type==='income'?'Ingreso':'Gasto',t.category,t.payment,t.necessary==='yes'?'Sí':'No',t.amount]);
+  const csv=[headers,...rows].map(r=>r.join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url;
+  a.download=`flowfinance_${new Date().toISOString().split('T')[0]}.csv`;
+  a.click(); URL.revokeObjectURL(url);
+  showToast('Exportado como CSV ✓','success');
+};
+
+// ============================================================
+// UTILS
+// ============================================================
+function formatCurrency(n){return '$'+(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function formatDate(d){if(!d)return'';const[y,m,day]=d.split('-');return`${day}/${m}/${y}`;}
+
+// Init: default date y mes
+document.getElementById('txDate').value=new Date().toISOString().split('T')[0];
+const now=new Date();
+document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+</script>
+
+<!-- ============================================================
+  PANTALLA DE CARGA INICIAL
+  ============================================================ -->
+<div id="loadingScreen" style="position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px;">
+  <div style="font-family:'DM Serif Display',serif;font-size:2rem;color:var(--green)">FlowFinance</div>
+  <div style="font-size:0.85rem;color:var(--text3)">Cargando tus datos…</div>
+  <div style="width:40px;height:40px;border:3px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin 0.8s linear infinite"></div>
+  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+</div>
+
+<!-- Spinner de operaciones -->
+<div id="globalSpinner" style="display:none;position:fixed;bottom:80px;right:24px;z-index:9998;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;font-size:0.82rem;color:var(--text2);box-shadow:var(--shadow);gap:8px;align-items:center;">
+  <div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0"></div>
+  Guardando…
+</div>
+
+<!-- ============================================================
+  APP (oculta hasta que auth confirme usuario)
+  ============================================================ -->
+<div id="appWrapper" style="display:none;min-height:100vh;">
+
+<div class="overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<!-- SIDEBAR -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-logo">
+    <h1>Flow<span>Finance</span></h1>
+    <p>Control Personal</p>
+  </div>
+  <nav class="nav-section">
+    <div class="nav-label">Principal</div>
+    <div class="nav-item active" onclick="showPage('dashboard',this)"><span class="icon">📊</span> Dashboard</div>
+    <div class="nav-item" onclick="showPage('transactions',this)"><span class="icon">💸</span> Movimientos</div>
+    <div class="nav-item" onclick="showPage('budget',this)"><span class="icon">📅</span> Presupuesto</div>
+    <div class="nav-label" style="margin-top:8px;">Gestión</div>
+    <div class="nav-item" onclick="showPage('cards',this)"><span class="icon">💳</span> Tarjetas</div>
+    <div class="nav-item" onclick="showPage('savings',this)"><span class="icon">🏦</span> Ahorros</div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="theme-toggle" onclick="toggleTheme()" id="themeToggle">
+      <span id="themeIcon">🌙</span><span id="themeLabel">Modo oscuro</span>
+    </div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="topbar">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <button class="btn btn-secondary btn-sm mobile-menu-btn" onclick="openSidebar()">☰</button>
+      <div class="topbar-title" id="pageTitle">Dashboard</div>
+    </div>
+    <div class="topbar-actions">
+      <!-- Avatar + nombre + logout -->
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--green);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;" id="userAvatar">?</div>
+        <span style="font-size:0.82rem;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="userDisplay"></span>
+        <button class="btn btn-secondary btn-sm" onclick="doLogout()" title="Cerrar sesión">Salir</button>
+      </div>
+      <button class="btn btn-primary" onclick="openModal('transactionModal')">＋ Nuevo movimiento</button>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <section class="page active" id="page-dashboard">
+    <div id="budgetAlerts"></div>
+    <div class="metrics-grid">
+      <div class="metric-card income">
+        <div class="metric-icon">💰</div>
+        <div class="metric-label">Ingresos del mes</div>
+        <div class="metric-value income" id="totalIncome">$0</div>
+        <div class="metric-sub" id="incomeCount">0 transacciones</div>
+      </div>
+      <div class="metric-card expense">
+        <div class="metric-icon">🛒</div>
+        <div class="metric-label">Gastos del mes</div>
+        <div class="metric-value expense" id="totalExpense">$0</div>
+        <div class="metric-sub" id="expenseCount">0 transacciones</div>
+      </div>
+      <div class="metric-card balance">
+        <div class="metric-icon">⚖️</div>
+        <div class="metric-label">Balance actual</div>
+        <div class="metric-value balance" id="totalBalance">$0</div>
+        <div class="metric-sub" id="balanceStatus">Buen estado</div>
+      </div>
+    </div>
+    <div class="dashboard-grid">
+      <div class="chart-card"><div class="chart-title">Evolución mensual</div><div class="chart-canvas-wrapper"><canvas id="monthlyChart"></canvas></div></div>
+      <div class="chart-card"><div class="chart-title">Gastos por categoría</div><div class="chart-canvas-wrapper" id="categoryChartWrapper"><canvas id="categoryChart"></canvas></div></div>
+    </div>
+    <div class="card">
+      <div class="section-header">
+        <div class="section-title">Últimos movimientos</div>
+        <button class="btn btn-secondary btn-sm" onclick="showPage('transactions',document.querySelector('[onclick*=transactions]'))">Ver todos</button>
+      </div>
+      <div class="table-wrapper"><table class="transactions-table"><thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th>Monto</th></tr></thead><tbody id="recentTransactionsBody"></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- MOVIMIENTOS -->
+  <section class="page" id="page-transactions">
+    <div class="export-row"><button class="btn btn-secondary btn-sm" onclick="exportCSV()">📥 Exportar CSV</button></div>
+    <div class="card">
+      <div class="transaction-filters">
+        <input type="text" class="filter-input search-box" id="searchInput" placeholder="🔍 Buscar movimientos..." oninput="renderTransactions()">
+        <select class="filter-input" id="filterType" onchange="renderTransactions()"><option value="">Todos los tipos</option><option value="income">Ingresos</option><option value="expense">Gastos</option></select>
+        <select class="filter-input" id="filterCategory" onchange="renderTransactions()"><option value="">Todas las categorías</option></select>
+        <input type="month" class="filter-input" id="filterMonth" onchange="renderTransactions()">
+      </div>
+      <div class="table-wrapper"><table class="transactions-table"><thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Medio</th><th>Tipo</th><th>¿Necesario?</th><th>Monto</th><th>Acciones</th></tr></thead><tbody id="transactionsBody"></tbody></table></div>
+      <div id="transactionsEmpty" class="empty-state" style="display:none;"><div class="empty-state-icon">📭</div><p>No hay movimientos que coincidan con los filtros.</p></div>
+    </div>
+  </section>
+
+  <!-- PRESUPUESTO -->
+  <section class="page" id="page-budget">
+    <div class="section-header"><div class="section-title">Presupuesto mensual</div><button class="btn btn-primary" onclick="openModal('budgetModal')">＋ Establecer presupuesto</button></div>
+    <div class="budget-grid" id="budgetGrid"></div>
+    <div id="budgetEmpty" class="empty-state"><div class="empty-state-icon">📋</div><p>No hay presupuestos definidos aún.</p></div>
+  </section>
+
+  <!-- TARJETAS -->
+  <section class="page" id="page-cards">
+    <div class="section-header"><div class="section-title">Tarjetas &amp; Cuotas</div><button class="btn btn-primary" onclick="openModal('cardModal')">＋ Agregar tarjeta/cuota</button></div>
+    <div class="cards-grid" id="cardsGrid"></div>
+    <div id="cardsEmpty" class="empty-state"><div class="empty-state-icon">💳</div><p>No hay compras en cuotas registradas.</p></div>
+    <div style="margin-top:32px;">
+      <div class="section-header"><div class="section-title" style="font-size:1.1rem;">Próximos pagos</div></div>
+      <div class="upcoming-list" id="upcomingList"></div>
+      <div id="upcomingEmpty" class="empty-state" style="padding:30px 20px;display:none;"><p>No hay próximos pagos pendientes.</p></div>
+    </div>
+  </section>
+
+  <!-- AHORROS -->
+  <section class="page" id="page-savings">
+    <div class="section-header"><div class="section-title">Objetivos de ahorro</div><button class="btn btn-primary" onclick="openModal('savingModal')">＋ Nuevo objetivo</button></div>
+    <div class="savings-grid" id="savingsGrid"></div>
+    <div id="savingsEmpty" class="empty-state"><div class="empty-state-icon">🎯</div><p>No hay objetivos de ahorro. ¡Creá uno para empezar!</p></div>
+  </section>
+</main>
+</div><!-- /appWrapper -->
+
+<!-- ===== MODALS ===== -->
+<div class="modal-overlay" id="transactionModal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="transactionModalTitle">Nuevo movimiento</div><button class="modal-close" onclick="closeModal('transactionModal')">✕</button></div>
+    <div class="form-grid">
+      <input type="hidden" id="editTransactionId">
+      <div class="form-group"><label class="form-label">Tipo</label><div class="radio-group"><button class="radio-btn income-btn selected" id="typeIncome" onclick="selectType('income')">📈 Ingreso</button><button class="radio-btn expense-btn" id="typeExpense" onclick="selectType('expense')">📉 Gasto</button></div></div>
+      <div class="form-group"><label class="form-label">Fecha</label><input type="date" class="form-input" id="txDate"></div>
+      <div class="form-group"><label class="form-label">Monto ($)</label><input type="number" class="form-input" id="txAmount" placeholder="0.00" min="0" step="0.01"></div>
+      <div class="form-group"><label class="form-label">Categoría</label><select class="form-input" id="txCategory"><option value="">Seleccionar...</option><option>Alimentación</option><option>Transporte</option><option>Vivienda</option><option>Salud</option><option>Educación</option><option>Entretenimiento</option><option>Ropa</option><option>Servicios</option><option>Tecnología</option><option>Restaurantes</option><option>Viajes</option><option>Mascotas</option><option>Sueldo</option><option>Freelance</option><option>Inversiones</option><option>Otros</option></select></div>
+      <div class="form-group"><label class="form-label">Medio de pago</label><select class="form-input" id="txPayment"><option value="">Seleccionar...</option><option>Efectivo</option><option>Débito</option><option>Crédito</option><option>Transferencia</option></select></div>
+      <div class="form-group"><label class="form-label">¿Era necesario?</label><select class="form-input" id="txNecessary"><option value="yes">✅ Sí</option><option value="no">❌ No</option></select></div>
+      <div class="form-group full"><label class="form-label">Descripción</label><input type="text" class="form-input" id="txDescription" placeholder="Ej: Supermercado, Uber, Netflix..."></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('transactionModal')">Cancelar</button><button class="btn btn-primary" id="saveTxBtn" onclick="saveTransaction()">Guardar</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="budgetModal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Establecer presupuesto</div><button class="modal-close" onclick="closeModal('budgetModal')">✕</button></div>
+    <div class="form-grid">
+      <div class="form-group"><label class="form-label">Categoría</label><select class="form-input" id="budgetCategory"><option value="">Seleccionar...</option><option>Alimentación</option><option>Transporte</option><option>Vivienda</option><option>Salud</option><option>Educación</option><option>Entretenimiento</option><option>Ropa</option><option>Servicios</option><option>Tecnología</option><option>Restaurantes</option><option>Viajes</option><option>Mascotas</option><option>Otros</option></select></div>
+      <div class="form-group"><label class="form-label">Presupuesto mensual ($)</label><input type="number" class="form-input" id="budgetAmount" placeholder="0.00" min="0" step="0.01"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('budgetModal')">Cancelar</button><button class="btn btn-primary" id="saveBudgetBtn" onclick="saveBudget()">Guardar</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="cardModal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Nueva compra en cuotas</div><button class="modal-close" onclick="closeModal('cardModal')">✕</button></div>
+    <div class="form-grid">
+      <div class="form-group full"><label class="form-label">Tarjeta / Banco</label><input type="text" class="form-input" id="cardBank" placeholder="Ej: Visa Galicia..."></div>
+      <div class="form-group full"><label class="form-label">Descripción</label><input type="text" class="form-input" id="cardDesc" placeholder="Ej: Notebook HP..."></div>
+      <div class="form-group"><label class="form-label">Monto total ($)</label><input type="number" class="form-input" id="cardTotal" placeholder="0.00" min="0" step="0.01" oninput="calcInstallment()"></div>
+      <div class="form-group"><label class="form-label">Cantidad de cuotas</label><input type="number" class="form-input" id="cardInstallments" placeholder="12" min="1" oninput="calcInstallment()"></div>
+      <div class="form-group"><label class="form-label">Cuotas restantes</label><input type="number" class="form-input" id="cardRemaining" placeholder="12" min="0"></div>
+      <div class="form-group"><label class="form-label">Valor de cuota ($)</label><input type="number" class="form-input" id="cardInstallmentValue" placeholder="Auto-calculado" step="0.01" readonly style="background:var(--bg2)"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('cardModal')">Cancelar</button><button class="btn btn-primary" id="saveCardBtn" onclick="saveCard()">Guardar</button></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="savingModal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title" id="savingModalTitle">Nuevo objetivo de ahorro</div><button class="modal-close" onclick="closeModal('savingModal')">✕</button></div>
+    <div class="form-grid">
+      <input type="hidden" id="editSavingId">
+      <div class="form-group full"><label class="form-label">Nombre del objetivo</label><input type="text" class="form-input" id="savingName" placeholder="Ej: Viaje a Europa..."></div>
+      <div class="form-group"><label class="form-label">Emoji (opcional)</label><input type="text" class="form-input" id="savingEmoji" placeholder="✈️" maxlength="2"></div>
+      <div class="form-group"><label class="form-label">Monto objetivo ($)</label><input type="number" class="form-input" id="savingTarget" placeholder="0.00" min="0" step="0.01"></div>
+      <div class="form-group full"><label class="form-label">Progreso actual ($)</label><input type="number" class="form-input" id="savingCurrent" placeholder="0.00" min="0" step="0.01"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('savingModal')">Cancelar</button><button class="btn btn-primary" id="saveSavingBtn" onclick="saveSaving()">Guardar</button></div>
+  </div>
+</div>
+
+<div class="confirm-dialog" id="confirmDialog">
+  <div class="confirm-box">
+    <div class="confirm-icon">⚠️</div>
+    <div class="confirm-title">¿Eliminar registro?</div>
+    <div class="confirm-text">Esta acción no se puede deshacer.</div>
+    <div class="confirm-actions"><button class="btn btn-secondary" onclick="closeConfirm()">Cancelar</button><button class="btn btn-danger" id="confirmDeleteBtn" onclick="confirmDelete()">Eliminar</button></div>
+  </div>
+</div>
+
+<div class="toast-container" id="toastContainer"></div>
+
+</body>
+</html>

@@ -3,984 +3,378 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FlowFinance — Control Personal</title>
+<title>FlowFinance — Iniciar sesión</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="./flowfinance.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+
+<!-- ======================================================
+  CONFIGURACIÓN FIREBASE
+  Reemplazá estos valores con los de tu proyecto Firebase:
+  Firebase Console → Tu Proyecto → Configuración → SDK config
+  ====================================================== -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+           onAuthStateChanged, GoogleAuthProvider, signInWithPopup }
+    from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDSNQRgkML8GRarOJK5Ulax2L4nsrcRFBk",
+  authDomain: "finanzas-aabd2.firebaseapp.com",
+  projectId: "finanzas-aabd2",
+  storageBucket: "finanzas-aabd2.firebasestorage.app",
+  messagingSenderId: "375877661677",
+  appId: "1:375877661677:web:e21810450617d48067ade4"
+};
+
+  const app  = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+
+  // Si ya está logueado, redirigir directamente a la app
+  onAuthStateChanged(auth, user => {
+    if (user) window.location.href = 'app.html';
+  });
+
+  // ── Alternar entre login y registro ──────────────────
+  const loginBox    = document.getElementById('loginBox');
+  const registerBox = document.getElementById('registerBox');
+
+  window.showRegister = () => { loginBox.style.display='none'; registerBox.style.display='flex'; }
+  window.showLogin    = () => { loginBox.style.display='flex'; registerBox.style.display='none'; }
+
+  // ── LOGIN con email/password ──────────────────────────
+  window.doLogin = async () => {
+    const email = document.getElementById('loginEmail').value.trim();
+    const pass  = document.getElementById('loginPass').value;
+    const btn   = document.getElementById('loginBtn');
+    clearError('loginError');
+    if (!email || !pass) { showError('loginError','Completá todos los campos.'); return; }
+    btn.disabled = true; btn.textContent = 'Ingresando…';
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+      // onAuthStateChanged redirige automáticamente
+    } catch(e) {
+      btn.disabled = false; btn.textContent = 'Ingresar';
+      showError('loginError', friendlyError(e.code));
+    }
+  };
+
+  // ── REGISTRO con email/password ───────────────────────
+  window.doRegister = async () => {
+    const name  = document.getElementById('regName').value.trim();
+    const email = document.getElementById('regEmail').value.trim();
+    const pass  = document.getElementById('regPass').value;
+    const pass2 = document.getElementById('regPass2').value;
+    const btn   = document.getElementById('registerBtn');
+    clearError('registerError');
+    if (!name || !email || !pass) { showError('registerError','Completá todos los campos.'); return; }
+    if (pass !== pass2)            { showError('registerError','Las contraseñas no coinciden.'); return; }
+    if (pass.length < 6)           { showError('registerError','La contraseña debe tener al menos 6 caracteres.'); return; }
+    btn.disabled = true; btn.textContent = 'Creando cuenta…';
+    try {
+      await createUserWithEmailAndPassword(auth, email, pass);
+      // onAuthStateChanged redirige automáticamente
+    } catch(e) {
+      btn.disabled = false; btn.textContent = 'Crear cuenta';
+      showError('registerError', friendlyError(e.code));
+    }
+  };
+
+  // ── GOOGLE Sign-In ────────────────────────────────────
+  window.doGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    try {
+      await signInWithPopup(auth, provider);
+    } catch(e) {
+      showError('loginError', friendlyError(e.code));
+    }
+  };
+
+  // ── Enter key ─────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    if (loginBox.style.display !== 'none') doLogin();
+    else doRegister();
+  });
+
+  // ── Helpers ───────────────────────────────────────────
+  function showError(id, msg) {
+    const el = document.getElementById(id);
+    el.textContent = msg; el.style.display = 'flex';
+  }
+  function clearError(id) {
+    const el = document.getElementById(id);
+    el.textContent = ''; el.style.display = 'none';
+  }
+  function friendlyError(code) {
+    const map = {
+      'auth/invalid-email':            'El email no es válido.',
+      'auth/user-not-found':           'No existe una cuenta con ese email.',
+      'auth/wrong-password':           'Contraseña incorrecta.',
+      'auth/invalid-credential':       'Email o contraseña incorrectos.',
+      'auth/email-already-in-use':     'Ya existe una cuenta con ese email.',
+      'auth/weak-password':            'La contraseña es muy débil (mínimo 6 caracteres).',
+      'auth/too-many-requests':        'Demasiados intentos. Intentá más tarde.',
+      'auth/network-request-failed':   'Error de red. Verificá tu conexión.',
+      'auth/popup-closed-by-user':     'Ceraste el popup de Google antes de terminar.',
+    };
+    return map[code] || 'Ocurrió un error. Intentá nuevamente.';
+  }
+</script>
+
+<style>
+/* ── Página de auth ── */
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 24px;
+}
+.auth-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  max-width: 900px;
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+}
+.auth-brand {
+  background: linear-gradient(145deg, #1a2f1e 0%, #2d7a4f 100%);
+  padding: 56px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  color: white;
+}
+.auth-brand h1 {
+  font-family: 'DM Serif Display', serif;
+  font-size: 2.4rem;
+  letter-spacing: -0.03em;
+  margin-bottom: 12px;
+  line-height: 1.1;
+}
+.auth-brand h1 span { opacity: 0.7; }
+.auth-brand p { font-size: 0.95rem; opacity: 0.7; line-height: 1.6; margin-bottom: 32px; }
+.brand-features { display: flex; flex-direction: column; gap: 12px; }
+.brand-feature {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 0.875rem; opacity: 0.85;
+}
+.brand-feature-icon {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: rgba(255,255,255,0.12);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.95rem; flex-shrink: 0;
+}
+.auth-form-side {
+  padding: 48px 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.auth-box { display: flex; flex-direction: column; gap: 0; }
+.auth-box-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: 1.6rem;
+  letter-spacing: -0.02em;
+  margin-bottom: 6px;
+}
+.auth-box-sub { font-size: 0.875rem; color: var(--text2); margin-bottom: 28px; }
+.auth-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+.auth-field label { font-size: 0.8rem; font-weight: 600; color: var(--text2); }
+.auth-input {
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-family: inherit;
+  transition: all 0.2s;
+  outline: none;
+}
+.auth-input:focus {
+  border-color: var(--green);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px rgba(45,122,79,0.12);
+}
+.auth-btn {
+  width: 100%; padding: 12px;
+  border-radius: 10px; border: none;
+  font-size: 0.9rem; font-weight: 600;
+  font-family: inherit; cursor: pointer;
+  transition: all 0.2s; margin-top: 4px;
+}
+.auth-btn-primary {
+  background: var(--green); color: white;
+}
+.auth-btn-primary:hover:not(:disabled) {
+  background: #256b44; transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(45,122,79,0.3);
+}
+.auth-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+.auth-btn-google {
+  background: var(--surface2); color: var(--text);
+  border: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  margin-bottom: 14px;
+}
+.auth-btn-google:hover { background: var(--bg2); }
+.auth-divider {
+  display: flex; align-items: center; gap: 12px;
+  margin: 16px 0; color: var(--text3); font-size: 0.78rem;
+}
+.auth-divider::before, .auth-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+.auth-switch {
+  text-align: center; margin-top: 20px;
+  font-size: 0.82rem; color: var(--text2);
+}
+.auth-switch a {
+  color: var(--green); font-weight: 600; cursor: pointer;
+  text-decoration: none;
+}
+.auth-switch a:hover { text-decoration: underline; }
+.auth-error {
+  display: none; align-items: center; gap: 8px;
+  padding: 10px 14px; border-radius: 8px;
+  background: var(--red-light); color: var(--red);
+  font-size: 0.82rem; font-weight: 500;
+  margin-bottom: 14px;
+  border: 1px solid rgba(192,57,43,0.15);
+}
+
+@media (max-width: 640px) {
+  .auth-split { grid-template-columns: 1fr; }
+  .auth-brand { display: none; }
+  .auth-form-side { padding: 32px 24px; }
+}
+</style>
 </head>
 <body>
 
-<div class="overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+<div class="auth-page">
+  <div class="auth-split">
 
-<!-- ===== SIDEBAR ===== -->
-<aside class="sidebar" id="sidebar">
-  <div class="sidebar-logo">
-    <h1>Flow<span>Finance</span></h1>
-    <p>Control Personal</p>
-  </div>
-  <nav class="nav-section">
-    <div class="nav-label">Principal</div>
-    <div class="nav-item active" onclick="showPage('dashboard', this)">
-      <span class="icon">📊</span> Dashboard
-    </div>
-    <div class="nav-item" onclick="showPage('transactions', this)">
-      <span class="icon">💸</span> Movimientos
-    </div>
-    <div class="nav-item" onclick="showPage('budget', this)">
-      <span class="icon">📅</span> Presupuesto
-    </div>
-    <div class="nav-label" style="margin-top:8px;">Gestión</div>
-    <div class="nav-item" onclick="showPage('cards', this)">
-      <span class="icon">💳</span> Tarjetas
-    </div>
-    <div class="nav-item" onclick="showPage('savings', this)">
-      <span class="icon">🏦</span> Ahorros
-    </div>
-  </nav>
-  <div class="sidebar-footer">
-    <div class="theme-toggle" onclick="toggleTheme()" id="themeToggle">
-      <span id="themeIcon">🌙</span>
-      <span id="themeLabel">Modo oscuro</span>
-    </div>
-  </div>
-</aside>
-
-<!-- ===== MAIN ===== -->
-<main class="main">
-  <div class="topbar">
-    <div style="display:flex;align-items:center;gap:12px;">
-      <button class="btn btn-secondary btn-sm mobile-menu-btn" onclick="openSidebar()">☰</button>
-      <div class="topbar-title" id="pageTitle">Dashboard</div>
-    </div>
-    <div class="topbar-actions">
-      <button class="btn btn-primary" onclick="openModal('transactionModal')">＋ Nuevo movimiento</button>
-    </div>
-  </div>
-
-  <!-- DASHBOARD -->
-  <section class="page active" id="page-dashboard">
-    <div id="budgetAlerts"></div>
-
-    <div class="metrics-grid">
-      <div class="metric-card income">
-        <div class="metric-icon">💰</div>
-        <div class="metric-label">Ingresos del mes</div>
-        <div class="metric-value income" id="totalIncome">$0</div>
-        <div class="metric-sub" id="incomeCount">0 transacciones</div>
-      </div>
-      <div class="metric-card expense">
-        <div class="metric-icon">🛒</div>
-        <div class="metric-label">Gastos del mes</div>
-        <div class="metric-value expense" id="totalExpense">$0</div>
-        <div class="metric-sub" id="expenseCount">0 transacciones</div>
-      </div>
-      <div class="metric-card balance">
-        <div class="metric-icon">⚖️</div>
-        <div class="metric-label">Balance actual</div>
-        <div class="metric-value balance" id="totalBalance">$0</div>
-        <div class="metric-sub" id="balanceStatus">Buen estado</div>
-      </div>
-    </div>
-
-    <div class="dashboard-grid">
-      <div class="chart-card">
-        <div class="chart-title">Evolución mensual</div>
-        <!-- wrapper con altura fija: evita el crecimiento infinito -->
-        <div class="chart-canvas-wrapper">
-          <canvas id="monthlyChart"></canvas>
+    <!-- Lado izquierdo: branding -->
+    <div class="auth-brand">
+      <h1>Flow<span>Finance</span></h1>
+      <p>Tu control financiero personal, simple y efectivo.</p>
+      <div class="brand-features">
+        <div class="brand-feature">
+          <div class="brand-feature-icon">📊</div>
+          <span>Dashboard con métricas del mes</span>
         </div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Gastos por categoría</div>
-        <div class="chart-canvas-wrapper" id="categoryChartWrapper">
-          <canvas id="categoryChart"></canvas>
+        <div class="brand-feature">
+          <div class="brand-feature-icon">💸</div>
+          <span>Registro de ingresos y gastos</span>
+        </div>
+        <div class="brand-feature">
+          <div class="brand-feature-icon">📅</div>
+          <span>Presupuesto por categoría</span>
+        </div>
+        <div class="brand-feature">
+          <div class="brand-feature-icon">💳</div>
+          <span>Control de cuotas y tarjetas</span>
+        </div>
+        <div class="brand-feature">
+          <div class="brand-feature-icon">🏦</div>
+          <span>Objetivos de ahorro</span>
         </div>
       </div>
     </div>
 
-    <div class="card">
-      <div class="section-header">
-        <div class="section-title">Últimos movimientos</div>
-        <button class="btn btn-secondary btn-sm"
-          onclick="showPage('transactions', document.querySelector('[onclick*=transactions]'))">
-          Ver todos
+    <!-- Lado derecho: formularios -->
+    <div class="auth-form-side">
+
+      <!-- LOGIN -->
+      <div class="auth-box" id="loginBox">
+        <div class="auth-box-title">Bienvenido</div>
+        <div class="auth-box-sub">Ingresá a tu cuenta para continuar</div>
+
+        <button class="auth-btn auth-btn-google" onclick="doGoogle()">
+          <svg width="18" height="18" viewBox="0 0 48 48">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          Continuar con Google
         </button>
-      </div>
-      <div class="table-wrapper">
-        <table class="transactions-table">
-          <thead>
-            <tr>
-              <th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th>Monto</th>
-            </tr>
-          </thead>
-          <tbody id="recentTransactionsBody"></tbody>
-        </table>
-      </div>
-    </div>
-  </section>
 
-  <!-- MOVIMIENTOS -->
-  <section class="page" id="page-transactions">
-    <div class="export-row">
-      <button class="btn btn-secondary btn-sm" onclick="exportCSV()">📥 Exportar CSV</button>
-    </div>
-    <div class="card">
-      <div class="transaction-filters">
-        <input type="text" class="filter-input search-box" id="searchInput"
-          placeholder="🔍 Buscar movimientos..." oninput="renderTransactions()">
-        <select class="filter-input" id="filterType" onchange="renderTransactions()">
-          <option value="">Todos los tipos</option>
-          <option value="income">Ingresos</option>
-          <option value="expense">Gastos</option>
-        </select>
-        <select class="filter-input" id="filterCategory" onchange="renderTransactions()">
-          <option value="">Todas las categorías</option>
-        </select>
-        <input type="month" class="filter-input" id="filterMonth" onchange="renderTransactions()">
-      </div>
-      <div class="table-wrapper">
-        <table class="transactions-table">
-          <thead>
-            <tr>
-              <th>Fecha</th><th>Descripción</th><th>Categoría</th>
-              <th>Medio</th><th>Tipo</th><th>¿Necesario?</th><th>Monto</th><th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody id="transactionsBody"></tbody>
-        </table>
-      </div>
-      <div id="transactionsEmpty" class="empty-state" style="display:none;">
-        <div class="empty-state-icon">📭</div>
-        <p>No hay movimientos que coincidan con los filtros.</p>
-      </div>
-    </div>
-  </section>
+        <div class="auth-divider">o con email</div>
 
-  <!-- PRESUPUESTO -->
-  <section class="page" id="page-budget">
-    <div class="section-header">
-      <div class="section-title">Presupuesto mensual</div>
-      <button class="btn btn-primary" onclick="openModal('budgetModal')">＋ Establecer presupuesto</button>
-    </div>
-    <div class="budget-grid" id="budgetGrid"></div>
-    <div id="budgetEmpty" class="empty-state">
-      <div class="empty-state-icon">📋</div>
-      <p>No hay presupuestos definidos. Hacé clic en "Establecer presupuesto" para empezar.</p>
-    </div>
-  </section>
+        <div id="loginError" class="auth-error">⚠️ <span></span></div>
 
-  <!-- TARJETAS -->
-  <section class="page" id="page-cards">
-    <div class="section-header">
-      <div class="section-title">Tarjetas &amp; Cuotas</div>
-      <button class="btn btn-primary" onclick="openModal('cardModal')">＋ Agregar tarjeta/cuota</button>
-    </div>
-    <div class="cards-grid" id="cardsGrid"></div>
-    <div id="cardsEmpty" class="empty-state">
-      <div class="empty-state-icon">💳</div>
-      <p>No hay compras en cuotas registradas.</p>
-    </div>
-    <div style="margin-top:32px;">
-      <div class="section-header">
-        <div class="section-title" style="font-size:1.1rem;">Próximos pagos</div>
-      </div>
-      <div class="upcoming-list" id="upcomingList"></div>
-      <div id="upcomingEmpty" class="empty-state" style="padding:30px 20px;display:none;">
-        <p>No hay próximos pagos pendientes.</p>
-      </div>
-    </div>
-  </section>
+        <div class="auth-field">
+          <label>Email</label>
+          <input type="email" class="auth-input" id="loginEmail" placeholder="tu@email.com" autocomplete="email">
+        </div>
+        <div class="auth-field">
+          <label>Contraseña</label>
+          <input type="password" class="auth-input" id="loginPass" placeholder="••••••••" autocomplete="current-password">
+        </div>
 
-  <!-- AHORROS -->
-  <section class="page" id="page-savings">
-    <div class="section-header">
-      <div class="section-title">Objetivos de ahorro</div>
-      <button class="btn btn-primary" onclick="openModal('savingModal')">＋ Nuevo objetivo</button>
-    </div>
-    <div class="savings-grid" id="savingsGrid"></div>
-    <div id="savingsEmpty" class="empty-state">
-      <div class="empty-state-icon">🎯</div>
-      <p>No hay objetivos de ahorro. ¡Creá uno para empezar!</p>
-    </div>
-  </section>
-</main>
+        <button class="auth-btn auth-btn-primary" id="loginBtn" onclick="doLogin()">Ingresar</button>
 
-<!-- ===== MODAL: MOVIMIENTO ===== -->
-<div class="modal-overlay" id="transactionModal">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title" id="transactionModalTitle">Nuevo movimiento</div>
-      <button class="modal-close" onclick="closeModal('transactionModal')">✕</button>
-    </div>
-    <div class="form-grid">
-      <input type="hidden" id="editTransactionId">
-      <div class="form-group">
-        <label class="form-label">Tipo</label>
-        <div class="radio-group">
-          <button class="radio-btn income-btn selected" id="typeIncome" onclick="selectType('income')">📈 Ingreso</button>
-          <button class="radio-btn expense-btn" id="typeExpense" onclick="selectType('expense')">📉 Gasto</button>
+        <div class="auth-switch">
+          ¿No tenés cuenta? <a onclick="showRegister()">Registrate gratis</a>
         </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Fecha</label>
-        <input type="date" class="form-input" id="txDate">
+
+      <!-- REGISTRO -->
+      <div class="auth-box" id="registerBox" style="display:none">
+        <div class="auth-box-title">Crear cuenta</div>
+        <div class="auth-box-sub">Es gratis y tus datos son solo tuyos</div>
+
+        <div id="registerError" class="auth-error">⚠️ <span></span></div>
+
+        <div class="auth-field">
+          <label>Nombre</label>
+          <input type="text" class="auth-input" id="regName" placeholder="Tu nombre" autocomplete="name">
+        </div>
+        <div class="auth-field">
+          <label>Email</label>
+          <input type="email" class="auth-input" id="regEmail" placeholder="tu@email.com" autocomplete="email">
+        </div>
+        <div class="auth-field">
+          <label>Contraseña</label>
+          <input type="password" class="auth-input" id="regPass" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
+        </div>
+        <div class="auth-field">
+          <label>Confirmar contraseña</label>
+          <input type="password" class="auth-input" id="regPass2" placeholder="Repetí la contraseña" autocomplete="new-password">
+        </div>
+
+        <button class="auth-btn auth-btn-primary" id="registerBtn" onclick="doRegister()">Crear cuenta</button>
+
+        <div class="auth-switch">
+          ¿Ya tenés cuenta? <a onclick="showLogin()">Iniciá sesión</a>
+        </div>
       </div>
-      <div class="form-group">
-        <label class="form-label">Monto ($)</label>
-        <input type="number" class="form-input" id="txAmount" placeholder="0.00" min="0" step="0.01">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Categoría</label>
-        <select class="form-input" id="txCategory">
-          <option value="">Seleccionar...</option>
-          <option>Alimentación</option><option>Transporte</option>
-          <option>Vivienda</option><option>Salud</option>
-          <option>Educación</option><option>Entretenimiento</option>
-          <option>Ropa</option><option>Servicios</option>
-          <option>Tecnología</option><option>Restaurantes</option>
-          <option>Viajes</option><option>Mascotas</option>
-          <option>Sueldo</option><option>Freelance</option>
-          <option>Inversiones</option><option>Otros</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Medio de pago</label>
-        <select class="form-input" id="txPayment">
-          <option value="">Seleccionar...</option>
-          <option>Efectivo</option><option>Débito</option>
-          <option>Crédito</option><option>Transferencia</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">¿Era necesario?</label>
-        <select class="form-input" id="txNecessary">
-          <option value="yes">✅ Sí</option>
-          <option value="no">❌ No</option>
-        </select>
-      </div>
-      <div class="form-group full">
-        <label class="form-label">Descripción</label>
-        <input type="text" class="form-input" id="txDescription"
-          placeholder="Ej: Supermercado, Uber, Netflix...">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('transactionModal')">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveTransaction()">Guardar</button>
+
     </div>
   </div>
 </div>
 
-<!-- ===== MODAL: PRESUPUESTO ===== -->
-<div class="modal-overlay" id="budgetModal">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">Establecer presupuesto</div>
-      <button class="modal-close" onclick="closeModal('budgetModal')">✕</button>
-    </div>
-    <div class="form-grid">
-      <div class="form-group">
-        <label class="form-label">Categoría</label>
-        <select class="form-input" id="budgetCategory">
-          <option value="">Seleccionar...</option>
-          <option>Alimentación</option><option>Transporte</option>
-          <option>Vivienda</option><option>Salud</option>
-          <option>Educación</option><option>Entretenimiento</option>
-          <option>Ropa</option><option>Servicios</option>
-          <option>Tecnología</option><option>Restaurantes</option>
-          <option>Viajes</option><option>Mascotas</option><option>Otros</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Presupuesto mensual ($)</label>
-        <input type="number" class="form-input" id="budgetAmount" placeholder="0.00" min="0" step="0.01">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('budgetModal')">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveBudget()">Guardar</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===== MODAL: TARJETA ===== -->
-<div class="modal-overlay" id="cardModal">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">Nueva compra en cuotas</div>
-      <button class="modal-close" onclick="closeModal('cardModal')">✕</button>
-    </div>
-    <div class="form-grid">
-      <div class="form-group full">
-        <label class="form-label">Tarjeta / Banco</label>
-        <input type="text" class="form-input" id="cardBank" placeholder="Ej: Visa Galicia, Mastercard BBVA...">
-      </div>
-      <div class="form-group full">
-        <label class="form-label">Descripción de la compra</label>
-        <input type="text" class="form-input" id="cardDesc" placeholder="Ej: Notebook HP, Viaje a Mendoza...">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Monto total ($)</label>
-        <input type="number" class="form-input" id="cardTotal" placeholder="0.00" min="0" step="0.01" oninput="calcInstallment()">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Cantidad de cuotas</label>
-        <input type="number" class="form-input" id="cardInstallments" placeholder="12" min="1" oninput="calcInstallment()">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Cuotas restantes</label>
-        <input type="number" class="form-input" id="cardRemaining" placeholder="12" min="0">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Valor de cuota ($)</label>
-        <input type="number" class="form-input" id="cardInstallmentValue"
-          placeholder="Auto-calculado" step="0.01" readonly style="background:var(--bg2);">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('cardModal')">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveCard()">Guardar</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===== MODAL: AHORRO ===== -->
-<div class="modal-overlay" id="savingModal">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title" id="savingModalTitle">Nuevo objetivo de ahorro</div>
-      <button class="modal-close" onclick="closeModal('savingModal')">✕</button>
-    </div>
-    <div class="form-grid">
-      <input type="hidden" id="editSavingId">
-      <div class="form-group full">
-        <label class="form-label">Nombre del objetivo</label>
-        <input type="text" class="form-input" id="savingName"
-          placeholder="Ej: Viaje a Europa, Fondo de emergencias...">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Emoji (opcional)</label>
-        <input type="text" class="form-input" id="savingEmoji" placeholder="✈️" maxlength="2">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Monto objetivo ($)</label>
-        <input type="number" class="form-input" id="savingTarget" placeholder="0.00" min="0" step="0.01">
-      </div>
-      <div class="form-group full">
-        <label class="form-label">Progreso actual ($)</label>
-        <input type="number" class="form-input" id="savingCurrent" placeholder="0.00" min="0" step="0.01">
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-secondary" onclick="closeModal('savingModal')">Cancelar</button>
-      <button class="btn btn-primary" onclick="saveSaving()">Guardar</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===== CONFIRM DIALOG ===== -->
-<div class="confirm-dialog" id="confirmDialog">
-  <div class="confirm-box">
-    <div class="confirm-icon">⚠️</div>
-    <div class="confirm-title">¿Eliminar registro?</div>
-    <div class="confirm-text">Esta acción no se puede deshacer.</div>
-    <div class="confirm-actions">
-      <button class="btn btn-secondary" onclick="closeConfirm()">Cancelar</button>
-      <button class="btn btn-danger" onclick="confirmDelete()">Eliminar</button>
-    </div>
-  </div>
-</div>
-
-<!-- ===== TOAST ===== -->
-<div class="toast-container" id="toastContainer"></div>
-
-<!-- ===== JAVASCRIPT ===== -->
 <script>
-// ============================================================
-// STATE
-// ============================================================
-let state = { transactions: [], budgets: [], creditCards: [], savings: [] };
-let selectedType   = 'income';
-let pendingDeleteType = null;
-let pendingDeleteId   = null;
-let monthlyChart   = null;
-let categoryChart  = null;
-
-const CAT_COLORS = {
-  'Alimentación':'#2d7a4f','Transporte':'#2563a8','Vivienda':'#7c3aed','Salud':'#e05a4a',
-  'Educación':'#0891b2','Entretenimiento':'#d97706','Ropa':'#db2777','Servicios':'#059669',
-  'Tecnología':'#4338ca','Restaurantes':'#c2410c','Viajes':'#0284c7','Mascotas':'#65a30d',
-  'Sueldo':'#16a34a','Freelance':'#ca8a04','Inversiones':'#2563a8','Otros':'#6b7280'
-};
-
-// ============================================================
-// PERSISTENCE
-// ============================================================
-function saveState() { localStorage.setItem('flowfinance_v2', JSON.stringify(state)); }
-function loadState() {
-  try { const raw = localStorage.getItem('flowfinance_v2'); if (raw) state = JSON.parse(raw); }
-  catch(e) {}
-  if (!state.transactions) state.transactions = [];
-  if (!state.budgets)      state.budgets      = [];
-  if (!state.creditCards)  state.creditCards  = [];
-  if (!state.savings)      state.savings      = [];
-}
-
-// ============================================================
-// NAVIGATION
-// ============================================================
-function showPage(id, el) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('page-' + id).classList.add('active');
-  if (el) el.classList.add('active');
-  const titles = { dashboard:'Dashboard', transactions:'Movimientos', budget:'Presupuesto', cards:'Tarjetas & Cuotas', savings:'Ahorros' };
-  document.getElementById('pageTitle').textContent = titles[id] || id;
-  closeSidebar();
-  if (id === 'dashboard')    renderDashboard();
-  if (id === 'transactions') { renderTransactions(); populateCategoryFilter(); }
-  if (id === 'budget')       renderBudget();
-  if (id === 'cards')        renderCards();
-  if (id === 'savings')      renderSavings();
-}
-
-function openSidebar()  { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('show'); }
-function closeSidebar() { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('show'); }
-
-// ============================================================
-// MODALS
-// ============================================================
-function openModal(id) { if (id === 'transactionModal') resetTransactionForm(); document.getElementById(id).classList.add('open'); }
-function closeModal(id) { document.getElementById(id).classList.remove('open'); }
-
-document.querySelectorAll('.modal-overlay').forEach(overlay => {
-  overlay.addEventListener('click', function(e) { if (e.target === this) closeModal(this.id); });
+// Parchar el auth-error para que funcione el span interno
+document.querySelectorAll('.auth-error').forEach(el => {
+  el._origShow = el.style.display;
 });
-
-// ============================================================
-// TRANSACTION FORM
-// ============================================================
-function selectType(type) {
-  selectedType = type;
-  document.getElementById('typeIncome').classList.toggle('selected',  type === 'income');
-  document.getElementById('typeExpense').classList.toggle('selected', type === 'expense');
-}
-
-function resetTransactionForm() {
-  document.getElementById('editTransactionId').value = '';
-  document.getElementById('transactionModalTitle').textContent = 'Nuevo movimiento';
-  document.getElementById('txDate').value = new Date().toISOString().split('T')[0];
-  document.getElementById('txAmount').value      = '';
-  document.getElementById('txCategory').value    = '';
-  document.getElementById('txPayment').value     = '';
-  document.getElementById('txNecessary').value   = 'yes';
-  document.getElementById('txDescription').value = '';
-  selectType('income');
-}
-
-function saveTransaction() {
-  const date        = document.getElementById('txDate').value;
-  const amount      = parseFloat(document.getElementById('txAmount').value);
-  const category    = document.getElementById('txCategory').value;
-  const payment     = document.getElementById('txPayment').value;
-  const necessary   = document.getElementById('txNecessary').value;
-  const description = document.getElementById('txDescription').value;
-
-  if (!date || !amount || amount <= 0 || !category || !description) {
-    showToast('Completá todos los campos requeridos.', 'error'); return;
-  }
-
-  const editId = document.getElementById('editTransactionId').value;
-  if (editId) {
-    const idx = state.transactions.findIndex(t => t.id === editId);
-    if (idx !== -1) state.transactions[idx] = { ...state.transactions[idx], date, amount, category, payment, necessary, description, type: selectedType };
-    showToast('Movimiento actualizado ✓', 'success');
-  } else {
-    state.transactions.push({ id: Date.now().toString(), date, amount, category, payment, necessary, description, type: selectedType });
-    showToast('Movimiento agregado ✓', 'success');
-  }
-
-  saveState();
-  closeModal('transactionModal');
-  renderDashboard();
-  renderTransactions();
-  checkBudgetAlerts();
-}
-
-function editTransaction(id) {
-  const tx = state.transactions.find(t => t.id === id);
-  if (!tx) return;
-  document.getElementById('editTransactionId').value = tx.id;
-  document.getElementById('transactionModalTitle').textContent = 'Editar movimiento';
-  document.getElementById('txDate').value        = tx.date;
-  document.getElementById('txAmount').value      = tx.amount;
-  document.getElementById('txCategory').value    = tx.category;
-  document.getElementById('txPayment').value     = tx.payment;
-  document.getElementById('txNecessary').value   = tx.necessary;
-  document.getElementById('txDescription').value = tx.description;
-  selectType(tx.type);
-  openModal('transactionModal');
-}
-
-function deleteTransaction(id) { openConfirm('transaction', id); }
-
-// ============================================================
-// RENDER TRANSACTIONS
-// ============================================================
-function renderTransactions() {
-  const search      = (document.getElementById('searchInput')?.value || '').toLowerCase();
-  const typeFilter  = document.getElementById('filterType')?.value  || '';
-  const catFilter   = document.getElementById('filterCategory')?.value || '';
-  const monthFilter = document.getElementById('filterMonth')?.value || '';
-
-  let txs = [...state.transactions].sort((a,b) => new Date(b.date) - new Date(a.date));
-  if (search)      txs = txs.filter(t => t.description.toLowerCase().includes(search) || t.category.toLowerCase().includes(search));
-  if (typeFilter)  txs = txs.filter(t => t.type === typeFilter);
-  if (catFilter)   txs = txs.filter(t => t.category === catFilter);
-  if (monthFilter) txs = txs.filter(t => t.date.startsWith(monthFilter));
-
-  const tbody = document.getElementById('transactionsBody');
-  const empty = document.getElementById('transactionsEmpty');
-  if (!tbody) return;
-
-  if (txs.length === 0) { tbody.innerHTML = ''; if (empty) empty.style.display = 'block'; return; }
-  if (empty) empty.style.display = 'none';
-
-  tbody.innerHTML = txs.map(t => `
-    <tr>
-      <td>${formatDate(t.date)}</td>
-      <td><strong>${t.description}</strong></td>
-      <td><span class="badge" style="background:${CAT_COLORS[t.category]||'#888'}22;color:${CAT_COLORS[t.category]||'#888'}">${t.category}</span></td>
-      <td>${t.payment || '—'}</td>
-      <td><span class="badge ${t.type==='income'?'badge-income':'badge-expense'}">${t.type==='income'?'↑ Ingreso':'↓ Gasto'}</span></td>
-      <td><span class="badge ${t.necessary==='yes'?'badge-yes':'badge-no'}">${t.necessary==='yes'?'Sí':'No'}</span></td>
-      <td class="${t.type==='income'?'amount-income':'amount-expense'}">${t.type==='income'?'+':'-'}${formatCurrency(t.amount)}</td>
-      <td>
-        <button class="action-btn edit-btn"   onclick="editTransaction('${t.id}')">✏️</button>
-        <button class="action-btn delete-btn" onclick="deleteTransaction('${t.id}')">🗑️</button>
-      </td>
-    </tr>
-  `).join('');
-}
-
-function populateCategoryFilter() {
-  const sel = document.getElementById('filterCategory');
-  if (!sel) return;
-  const used = [...new Set(state.transactions.map(t => t.category))].sort();
-  sel.innerHTML = '<option value="">Todas las categorías</option>' + used.map(c => `<option value="${c}">${c}</option>`).join('');
-}
-
-// ============================================================
-// DASHBOARD
-// ============================================================
-function getMonthTransactions() {
-  const now = new Date();
-  const ym  = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  return state.transactions.filter(t => t.date.startsWith(ym));
-}
-
-function renderDashboard() {
-  const monthly = getMonthTransactions();
-  const income  = monthly.filter(t => t.type==='income').reduce((s,t) => s+t.amount, 0);
-  const expense = monthly.filter(t => t.type==='expense').reduce((s,t) => s+t.amount, 0);
-  const balance = income - expense;
-
-  document.getElementById('totalIncome').textContent  = formatCurrency(income);
-  document.getElementById('totalExpense').textContent = formatCurrency(expense);
-  document.getElementById('totalBalance').textContent = formatCurrency(balance);
-  document.getElementById('incomeCount').textContent  = `${monthly.filter(t=>t.type==='income').length} transacciones`;
-  document.getElementById('expenseCount').textContent = `${monthly.filter(t=>t.type==='expense').length} transacciones`;
-  document.getElementById('balanceStatus').textContent = balance >= 0 ? '✅ Buen estado' : '⚠️ Déficit';
-
-  // Últimos movimientos
-  const recent = [...state.transactions].sort((a,b) => new Date(b.date)-new Date(a.date)).slice(0,5);
-  const tbody  = document.getElementById('recentTransactionsBody');
-  if (tbody) {
-    tbody.innerHTML = recent.length === 0
-      ? '<tr><td colspan="5" style="text-align:center;color:var(--text3);padding:30px">Sin movimientos aún</td></tr>'
-      : recent.map(t => `
-        <tr>
-          <td>${formatDate(t.date)}</td>
-          <td>${t.description}</td>
-          <td><span class="badge" style="background:${CAT_COLORS[t.category]||'#888'}22;color:${CAT_COLORS[t.category]||'#888'}">${t.category}</span></td>
-          <td><span class="badge ${t.type==='income'?'badge-income':'badge-expense'}">${t.type==='income'?'↑':'↓'} ${t.type==='income'?'Ingreso':'Gasto'}</span></td>
-          <td class="${t.type==='income'?'amount-income':'amount-expense'}">${t.type==='income'?'+':'-'}${formatCurrency(t.amount)}</td>
-        </tr>
-      `).join('');
-  }
-
-  renderMonthlyChart();
-  renderCategoryChart();
-  checkBudgetAlerts();
-}
-
-// ============================================================
-// CHARTS — usa maintainAspectRatio:false + wrapper con altura fija
-// ============================================================
-function renderMonthlyChart() {
-  const ctx = document.getElementById('monthlyChart');
-  if (!ctx) return;
-
-  const months = [], incomes = [], expenses = [];
-  for (let i = 5; i >= 0; i--) {
-    const d  = new Date(); d.setMonth(d.getMonth() - i);
-    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    months.push(d.toLocaleDateString('es', { month:'short', year:'2-digit' }));
-    const txs = state.transactions.filter(t => t.date.startsWith(ym));
-    incomes.push(txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0));
-    expenses.push(txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0));
-  }
-
-  if (monthlyChart) { monthlyChart.destroy(); monthlyChart = null; }
-
-  monthlyChart = new Chart(ctx, {
-    type: 'bar',
-    data: {
-      labels: months,
-      datasets: [
-        { label:'Ingresos', data:incomes,  backgroundColor:'rgba(45,122,79,0.75)',  borderRadius:6, borderSkipped:false },
-        { label:'Gastos',   data:expenses, backgroundColor:'rgba(192,57,43,0.75)', borderRadius:6, borderSkipped:false }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,   // ← clave: el canvas respeta el wrapper
-      plugins: {
-        legend: { labels: { color:'#888' } }
-      },
-      scales: {
-        x: { grid:{ display:false }, ticks:{ color:'#888' } },
-        y: { grid:{ color:'rgba(128,128,128,0.1)' }, ticks:{ color:'#888', callback: v => '$'+v.toLocaleString() }, beginAtZero:true }
-      }
-    }
-  });
-}
-
-function renderCategoryChart() {
-  const wrapper = document.getElementById('categoryChartWrapper');
-  const ctx     = document.getElementById('categoryChart');
-  if (!wrapper || !ctx) return;
-
-  const monthly = getMonthTransactions().filter(t => t.type==='expense');
-  const catMap  = {};
-  monthly.forEach(t => { catMap[t.category] = (catMap[t.category]||0) + t.amount; });
-  const cats = Object.keys(catMap);
-  const vals = Object.values(catMap);
-
-  if (categoryChart) { categoryChart.destroy(); categoryChart = null; }
-
-  if (cats.length === 0) {
-    wrapper.innerHTML = '<div class="empty-state" style="padding:40px 0"><div class="empty-state-icon">📊</div><p>Sin gastos este mes</p></div>';
-    return;
-  }
-
-  // Aseguramos que el canvas siga existiendo en el wrapper
-  if (!document.getElementById('categoryChart')) {
-    const canvas = document.createElement('canvas');
-    canvas.id = 'categoryChart';
-    wrapper.appendChild(canvas);
-  }
-  const finalCtx = document.getElementById('categoryChart');
-
-  categoryChart = new Chart(finalCtx, {
-    type: 'doughnut',
-    data: {
-      labels: cats,
-      datasets: [{
-        data: vals,
-        backgroundColor: cats.map(c => (CAT_COLORS[c]||'#888')+'cc'),
-        borderWidth: 2,
-        borderColor: getComputedStyle(document.documentElement).getPropertyValue('--surface').trim() || '#fff'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,   // ← ídem
-      plugins: {
-        legend: { position:'right', labels:{ color:'#888', boxWidth:12, padding:10, font:{ size:11 } } }
-      },
-      cutout: '65%'
-    }
-  });
-}
-
-// ============================================================
-// BUDGET
-// ============================================================
-function saveBudget() {
-  const category = document.getElementById('budgetCategory').value;
-  const amount   = parseFloat(document.getElementById('budgetAmount').value);
-  if (!category || !amount || amount <= 0) { showToast('Completá todos los campos.','error'); return; }
-
-  const existing = state.budgets.findIndex(b => b.category === category);
-  if (existing !== -1) state.budgets[existing].amount = amount;
-  else state.budgets.push({ id: Date.now().toString(), category, amount });
-
-  saveState(); closeModal('budgetModal'); renderBudget();
-  showToast('Presupuesto guardado ✓','success');
-  document.getElementById('budgetCategory').value = '';
-  document.getElementById('budgetAmount').value   = '';
-}
-
-function renderBudget() {
-  const grid  = document.getElementById('budgetGrid');
-  const empty = document.getElementById('budgetEmpty');
-  if (!grid) return;
-  if (state.budgets.length === 0) { grid.innerHTML=''; empty.style.display='block'; return; }
-  empty.style.display = 'none';
-
-  const monthly = getMonthTransactions().filter(t=>t.type==='expense');
-  const catSpend = {};
-  monthly.forEach(t => { catSpend[t.category] = (catSpend[t.category]||0)+t.amount; });
-
-  grid.innerHTML = state.budgets.map(b => {
-    const spent     = catSpend[b.category] || 0;
-    const pct       = Math.min((spent/b.amount)*100, 100);
-    const diff      = b.amount - spent;
-    const fillClass = pct < 70 ? 'ok' : pct < 100 ? 'warn' : 'over';
-    return `
-      <div class="budget-item">
-        <div class="budget-header">
-          <div class="budget-cat">${b.category}</div>
-          <button class="action-btn delete-btn" onclick="deleteBudget('${b.id}')">🗑️</button>
-        </div>
-        <div class="budget-amounts">${formatCurrency(spent)} gastado de ${formatCurrency(b.amount)}</div>
-        <div class="progress-bar"><div class="progress-fill ${fillClass}" style="width:${pct}%"></div></div>
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div class="budget-diff ${diff>=0?'positive':'negative'}">${diff>=0?'✅ Disponible: '+formatCurrency(diff):'🚨 Excedido: '+formatCurrency(Math.abs(diff))}</div>
-          <span class="stat-pill ${pct<100?'pill-green':'pill-red'}">${Math.round(pct)}%</span>
-        </div>
-      </div>`;
-  }).join('');
-}
-
-function deleteBudget(id) { openConfirm('budget', id); }
-
-function checkBudgetAlerts() {
-  const container = document.getElementById('budgetAlerts');
-  if (!container) return;
-  const monthly  = getMonthTransactions().filter(t=>t.type==='expense');
-  const catSpend = {};
-  monthly.forEach(t => { catSpend[t.category]=(catSpend[t.category]||0)+t.amount; });
-  const exceeded = state.budgets.filter(b => (catSpend[b.category]||0) > b.amount);
-  container.innerHTML = exceeded.map(b =>
-    `<div class="budget-alert">⚠️ Superaste el presupuesto de <strong>${b.category}</strong>: gastaste ${formatCurrency(catSpend[b.category])} de ${formatCurrency(b.amount)}</div>`
-  ).join('');
-}
-
-// ============================================================
-// CREDIT CARDS
-// ============================================================
-function calcInstallment() {
-  const total = parseFloat(document.getElementById('cardTotal').value) || 0;
-  const inst  = parseInt(document.getElementById('cardInstallments').value) || 0;
-  if (total > 0 && inst > 0) {
-    document.getElementById('cardInstallmentValue').value = (total/inst).toFixed(2);
-    document.getElementById('cardRemaining').value = inst;
-  }
-}
-
-function saveCard() {
-  const bank         = document.getElementById('cardBank').value;
-  const desc         = document.getElementById('cardDesc').value;
-  const total        = parseFloat(document.getElementById('cardTotal').value);
-  const installments = parseInt(document.getElementById('cardInstallments').value);
-  const remaining    = parseInt(document.getElementById('cardRemaining').value);
-  const value        = parseFloat(document.getElementById('cardInstallmentValue').value);
-  if (!bank || !desc || !total || !installments || !remaining) { showToast('Completá todos los campos.','error'); return; }
-  state.creditCards.push({ id:Date.now().toString(), bank, desc, total, installments, remaining, value });
-  saveState(); closeModal('cardModal'); renderCards();
-  showToast('Tarjeta/cuota registrada ✓','success');
-  ['cardBank','cardDesc','cardTotal','cardInstallments','cardRemaining','cardInstallmentValue'].forEach(id => document.getElementById(id).value='');
-}
-
-function renderCards() {
-  const grid         = document.getElementById('cardsGrid');
-  const empty        = document.getElementById('cardsEmpty');
-  const upcomingList = document.getElementById('upcomingList');
-  const upcomingEmpty= document.getElementById('upcomingEmpty');
-  if (!grid) return;
-
-  if (state.creditCards.length === 0) { grid.innerHTML=''; empty.style.display='block'; upcomingList.innerHTML=''; upcomingEmpty.style.display='block'; return; }
-  empty.style.display = 'none';
-
-  grid.innerHTML = state.creditCards.map(c => `
-    <div class="credit-card-item">
-      <div class="card-bank">${c.bank}</div>
-      <div class="card-amount">${formatCurrency(c.value)}</div>
-      <div class="card-sub">por cuota</div>
-      <div class="card-installments">
-        <div><div class="card-field-label">Descripción</div><div class="card-field-value">${c.desc}</div></div>
-        <div><div class="card-field-label">Cuotas restantes</div><div class="card-field-value">${c.remaining} / ${c.installments}</div></div>
-      </div>
-      <div style="margin-top:12px">
-        <div class="progress-bar" style="background:rgba(255,255,255,0.15)">
-          <div class="progress-fill ok" style="width:${Math.round(((c.installments-c.remaining)/c.installments)*100)}%;background:rgba(255,255,255,0.6)"></div>
-        </div>
-      </div>
-      <div class="card-actions">
-        <button class="card-action-btn" onclick="payInstallment('${c.id}')">✓ Pagar cuota</button>
-        <button class="card-action-btn" onclick="deleteCard('${c.id}')">🗑️ Eliminar</button>
-      </div>
-    </div>`).join('');
-
-  upcomingList.innerHTML = state.creditCards.filter(c=>c.remaining>0).map(c => `
-    <div class="upcoming-item">
-      <div class="upcoming-info">
-        <div class="upcoming-name">${c.desc}</div>
-        <div class="upcoming-meta">${c.bank} · ${c.remaining} cuotas restantes</div>
-      </div>
-      <div class="upcoming-amount">${formatCurrency(c.value)}</div>
-    </div>`).join('');
-  upcomingEmpty.style.display = state.creditCards.filter(c=>c.remaining>0).length===0 ? 'block':'none';
-}
-
-function payInstallment(id) {
-  const idx = state.creditCards.findIndex(c=>c.id===id);
-  if (idx !== -1 && state.creditCards[idx].remaining > 0) {
-    state.creditCards[idx].remaining--;
-    showToast(state.creditCards[idx].remaining===0 ? '🎉 ¡Cuota finalizada!' : 'Cuota pagada ✓','success');
-    saveState(); renderCards();
-  }
-}
-function deleteCard(id) { openConfirm('card', id); }
-
-// ============================================================
-// SAVINGS
-// ============================================================
-function saveSaving() {
-  const name    = document.getElementById('savingName').value;
-  const emoji   = document.getElementById('savingEmoji').value || '🎯';
-  const target  = parseFloat(document.getElementById('savingTarget').value);
-  const current = parseFloat(document.getElementById('savingCurrent').value) || 0;
-  const editId  = document.getElementById('editSavingId').value;
-  if (!name || !target || target<=0) { showToast('Completá todos los campos.','error'); return; }
-
-  if (editId) {
-    const idx = state.savings.findIndex(s=>s.id===editId);
-    if (idx!==-1) state.savings[idx] = { ...state.savings[idx], name, emoji, target, current };
-    showToast('Objetivo actualizado ✓','success');
-  } else {
-    state.savings.push({ id:Date.now().toString(), name, emoji, target, current });
-    showToast('Objetivo creado ✓','success');
-  }
-  saveState(); closeModal('savingModal'); renderSavings();
-  document.getElementById('editSavingId').value = '';
-}
-
-function renderSavings() {
-  const grid  = document.getElementById('savingsGrid');
-  const empty = document.getElementById('savingsEmpty');
-  if (!grid) return;
-  if (state.savings.length===0) { grid.innerHTML=''; empty.style.display='block'; return; }
-  empty.style.display='none';
-  grid.innerHTML = state.savings.map(s => {
-    const pct       = Math.min((s.current/s.target)*100,100);
-    const fillClass = pct<50?'ok':pct<90?'warn':'ok';
-    return `
-      <div class="saving-item">
-        <div class="saving-emoji">${s.emoji}</div>
-        <div class="saving-name">${s.name}</div>
-        <div class="saving-amounts">${formatCurrency(s.current)} de ${formatCurrency(s.target)}</div>
-        <div class="saving-percent"><span>Progreso</span><strong>${Math.round(pct)}%</strong></div>
-        <div class="progress-bar"><div class="progress-fill ${fillClass}" style="width:${pct}%"></div></div>
-        ${pct>=100?'<div style="color:var(--green);font-size:0.85rem;font-weight:600;margin-top:6px">🎉 ¡Meta alcanzada!</div>':`<div style="font-size:0.78rem;color:var(--text3);margin-top:4px">Faltan ${formatCurrency(s.target-s.current)}</div>`}
-        <div class="saving-actions">
-          <button class="btn btn-secondary btn-sm" onclick="editSaving('${s.id}')">✏️ Editar</button>
-          <button class="btn btn-danger btn-sm"    onclick="deleteSaving('${s.id}')">🗑️</button>
-        </div>
-      </div>`;
-  }).join('');
-}
-
-function editSaving(id) {
-  const s = state.savings.find(sv=>sv.id===id);
-  if (!s) return;
-  document.getElementById('editSavingId').value     = s.id;
-  document.getElementById('savingModalTitle').textContent = 'Editar objetivo';
-  document.getElementById('savingName').value       = s.name;
-  document.getElementById('savingEmoji').value      = s.emoji;
-  document.getElementById('savingTarget').value     = s.target;
-  document.getElementById('savingCurrent').value    = s.current;
-  openModal('savingModal');
-}
-function deleteSaving(id) { openConfirm('saving', id); }
-
-// ============================================================
-// CONFIRM / DELETE
-// ============================================================
-function openConfirm(type, id)  { pendingDeleteType=type; pendingDeleteId=id; document.getElementById('confirmDialog').classList.add('open'); }
-function closeConfirm()         { pendingDeleteType=null; pendingDeleteId=null; document.getElementById('confirmDialog').classList.remove('open'); }
-function confirmDelete() {
-  if      (pendingDeleteType==='transaction') { state.transactions=state.transactions.filter(t=>t.id!==pendingDeleteId); renderTransactions(); renderDashboard(); showToast('Movimiento eliminado','success'); }
-  else if (pendingDeleteType==='budget')      { state.budgets=state.budgets.filter(b=>b.id!==pendingDeleteId); renderBudget(); showToast('Presupuesto eliminado','success'); }
-  else if (pendingDeleteType==='card')        { state.creditCards=state.creditCards.filter(c=>c.id!==pendingDeleteId); renderCards(); showToast('Tarjeta eliminada','success'); }
-  else if (pendingDeleteType==='saving')      { state.savings=state.savings.filter(s=>s.id!==pendingDeleteId); renderSavings(); showToast('Objetivo eliminado','success'); }
-  saveState(); closeConfirm();
-}
-
-// ============================================================
-// TOAST
-// ============================================================
-function showToast(msg, type='success') {
-  const icons = { success:'✅', error:'❌', warning:'⚠️' };
-  const toast = document.createElement('div');
-  toast.className = `toast ${type}`;
-  toast.innerHTML = `<span>${icons[type]}</span> ${msg}`;
-  document.getElementById('toastContainer').appendChild(toast);
-  setTimeout(() => { toast.style.animation='slideOut 0.3s ease forwards'; setTimeout(()=>toast.remove(),300); }, 3000);
-}
-
-// ============================================================
-// THEME
-// ============================================================
-function toggleTheme() {
-  const isDark = document.documentElement.getAttribute('data-theme')==='dark';
-  document.documentElement.setAttribute('data-theme', isDark?'light':'dark');
-  document.getElementById('themeIcon').textContent  = isDark?'🌙':'☀️';
-  document.getElementById('themeLabel').textContent = isDark?'Modo oscuro':'Modo claro';
-  localStorage.setItem('flowfinance_theme', isDark?'light':'dark');
-  setTimeout(() => { renderMonthlyChart(); renderCategoryChart(); }, 100);
-}
-
-// ============================================================
-// EXPORT CSV
-// ============================================================
-function exportCSV() {
-  if (state.transactions.length===0) { showToast('No hay movimientos para exportar.','warning'); return; }
-  const headers = ['Fecha','Descripción','Tipo','Categoría','Medio de pago','¿Necesario?','Monto'];
-  const rows    = state.transactions.map(t => [t.date,`"${t.description}"`,t.type==='income'?'Ingreso':'Gasto',t.category,t.payment,t.necessary==='yes'?'Sí':'No',t.amount]);
-  const csv     = [headers,...rows].map(r=>r.join(',')).join('\n');
-  const blob    = new Blob([csv],{type:'text/csv;charset=utf-8;'});
-  const url     = URL.createObjectURL(blob);
-  const a       = document.createElement('a'); a.href=url;
-  a.download = `flowfinance_${new Date().toISOString().split('T')[0]}.csv`;
-  a.click(); URL.revokeObjectURL(url);
-  showToast('Exportado como CSV ✓','success');
-}
-
-// ============================================================
-// UTILS
-// ============================================================
-function formatCurrency(n) { return '$'+(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
-function formatDate(d) { if(!d) return ''; const [y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
-
-// ============================================================
-// INIT
-// ============================================================
-function init() {
-  loadState();
-  const theme = localStorage.getItem('flowfinance_theme')||'light';
-  document.documentElement.setAttribute('data-theme', theme);
-  document.getElementById('themeIcon').textContent  = theme==='dark'?'☀️':'🌙';
-  document.getElementById('themeLabel').textContent = theme==='dark'?'Modo claro':'Modo oscuro';
-  document.getElementById('txDate').value = new Date().toISOString().split('T')[0];
-  const now = new Date();
-  document.getElementById('filterMonth').value = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  renderDashboard();
-}
-
-document.addEventListener('DOMContentLoaded', init);
+// Fix: showError actualiza el span interno
+window.showError = function(id, msg) {
+  const el = document.getElementById(id);
+  const span = el.querySelector('span') || el;
+  span.textContent = msg;
+  el.style.display = 'flex';
+};
 </script>
 </body>
 </html>
