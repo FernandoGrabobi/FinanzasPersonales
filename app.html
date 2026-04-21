@@ -682,8 +682,31 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
     <div class="nav-item" onclick="showPage('savings',this)"><span class="icon">🏦</span> Ahorros</div>
   </nav>
   <div class="sidebar-footer">
-    <div class="theme-toggle" onclick="toggleTheme()" id="themeToggle">
-      <span id="themeIcon">🌙</span><span id="themeLabel">Modo oscuro</span>
+    <div style="display:flex;flex-direction:column;gap:10px;width:100%">
+      <div style="font-size:0.72rem;color:var(--text3);font-weight:600;">Desarrollado por <span style="color:var(--text2)">HighSoftware</span></div>
+      <div style="display:flex;gap:12px;">
+        <a href="https://www.instagram.com/high_software/" target="_blank" rel="noopener"
+           style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text2);text-decoration:none;transition:color 0.2s"
+           onmouseover="this.style.color='var(--green)'" onmouseout="this.style.color='var(--text2)'">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/>
+            <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
+          </svg>
+          Instagram
+        </a>
+        <a href="https://fhighsoftware.com/" target="_blank" rel="noopener"
+           style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text2);text-decoration:none;transition:color 0.2s"
+           onmouseover="this.style.color='var(--green)'" onmouseout="this.style.color='var(--text2)'">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+          </svg>
+          Nuestra web
+        </a>
+      </div>
+      <div class="theme-toggle" onclick="toggleTheme()" id="themeToggle">
+        <span id="themeIcon">🌙</span><span id="themeLabel">Modo oscuro</span>
+      </div>
     </div>
   </div>
 </aside>
