@@ -80,7 +80,7 @@ window.doLogout = async () => {
 // ============================================================
 // ESTADO LOCAL (caché en memoria)
 // ============================================================
-let state = { transactions: [], budgets: [], creditCards: [], savings: [] };
+let state = { transactions: [], budgets: [], creditCards: [], cardPurchases: [], savings: [] };
 let selectedType = 'income';
 let pendingDeleteType = null, pendingDeleteId = null;
 let monthlyChart = null, categoryChart = null;
@@ -98,16 +98,18 @@ const CAT_COLORS = {
 async function loadAllData() {
   showLoading(true);
   try {
-    const [txSnap, budgSnap, cardSnap, savSnap] = await Promise.all([
+   const [txSnap, budgSnap, cardSnap, purchSnap, savSnap] = await Promise.all([
       getDocs(query(col('transactions'), orderBy('date','desc'))),
       getDocs(col('budgets')),
       getDocs(col('creditCards')),
+      getDocs(col('cardPurchases')),
       getDocs(col('savings'))
     ]);
-    state.transactions = txSnap.docs.map(d  => ({ id: d.id, ...d.data() }));
-    state.budgets       = budgSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    state.creditCards   = cardSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-    state.savings       = savSnap.docs.map(d  => ({ id: d.id, ...d.data() }));
+    state.transactions  = txSnap.docs.map(d   => ({ id: d.id, ...d.data() }));
+    state.budgets       = budgSnap.docs.map(d  => ({ id: d.id, ...d.data() }));
+    state.creditCards   = cardSnap.docs.map(d  => ({ id: d.id, ...d.data() }));
+    state.cardPurchases = purchSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    state.savings       = savSnap.docs.map(d   => ({ id: d.id, ...d.data() }));
   } catch(e) {
     showToast('Error cargando datos: ' + e.message, 'error');
   }
@@ -431,95 +433,238 @@ function checkBudgetAlerts() {
 // ============================================================
 // TARJETAS
 // ============================================================
-window.calcInstallment = function() {
-  const total=parseFloat(document.getElementById('cardTotal').value)||0;
-  const inst=parseInt(document.getElementById('cardInstallments').value)||0;
-  if (total>0&&inst>0) { document.getElementById('cardInstallmentValue').value=(total/inst).toFixed(2); document.getElementById('cardRemaining').value=inst; }
-};
 
+// ── Guardar tarjeta (solo nombre/banco) ──────────────────────
 window.saveCard = async function() {
-  const bank=document.getElementById('cardBank').value.trim();
-  const desc=document.getElementById('cardDesc').value.trim();
-  const total=parseFloat(document.getElementById('cardTotal').value);
-  const installments=parseInt(document.getElementById('cardInstallments').value);
-  const remaining=parseInt(document.getElementById('cardRemaining').value);
-  const value=parseFloat(document.getElementById('cardInstallmentValue').value);
-  if (!bank||!desc||!total||!installments||!remaining) { showToast('Completá todos los campos.','error'); return; }
-  const btn=document.getElementById('saveCardBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  const name  = document.getElementById('cardName').value.trim();
+  const bank  = document.getElementById('cardBankName').value.trim();
+  const color = document.getElementById('cardColor').value || '#1a2436';
+  if (!name || !bank) { showToast('Completá todos los campos.','error'); return; }
+  const btn = document.getElementById('saveCardBtn'); btn.disabled=true; btn.textContent='Guardando…';
   try {
-    const newDoc=await fsAdd('creditCards',{bank,desc,total,installments,remaining,value});
+    const newDoc = await fsAdd('creditCards', { name, bank, color });
     state.creditCards.push(newDoc);
-    closeModal('cardModal'); renderCards();
-    showToast('Tarjeta/cuota registrada ✓','success');
-    ['cardBank','cardDesc','cardTotal','cardInstallments','cardRemaining','cardInstallmentValue'].forEach(id=>document.getElementById(id).value='');
-  } catch(e){showToast('Error: '+e.message,'error');}
+    closeModal('cardModal');
+    renderCards();
+    showToast('Tarjeta registrada ✓','success');
+    document.getElementById('cardName').value='';
+    document.getElementById('cardBankName').value='';
+  } catch(e){ showToast('Error: '+e.message,'error'); }
   btn.disabled=false; btn.textContent='Guardar';
 };
 
-function renderCards() {
-  const grid=document.getElementById('cardsGrid'), empty=document.getElementById('cardsEmpty');
-  const upcomingList=document.getElementById('upcomingList'), upcomingEmpty=document.getElementById('upcomingEmpty');
-  if (!grid) return;
-  if (state.creditCards.length===0) { grid.innerHTML=''; empty.style.display='block'; upcomingList.innerHTML=''; upcomingEmpty.style.display='block'; return; }
-  empty.style.display='none';
-  grid.innerHTML=state.creditCards.map(c=>`
-    <div class="credit-card-item">
-      <div class="card-bank">${c.bank}</div>
-      <div class="card-amount">${formatCurrency(c.value)}</div>
-      <div class="card-sub">por cuota</div>
-      <div class="card-installments">
-        <div><div class="card-field-label">Descripción</div><div class="card-field-value">${c.desc}</div></div>
-        <div><div class="card-field-label">Cuotas restantes</div><div class="card-field-value">${c.remaining} / ${c.installments}</div></div>
-      </div>
-      <div style="margin-top:12px"><div class="progress-bar" style="background:rgba(255,255,255,0.15)">
-        <div class="progress-fill ok" style="width:${Math.round(((c.installments-c.remaining)/c.installments)*100)}%;background:rgba(255,255,255,0.6)"></div>
-      </div></div>
-      <div class="card-actions">
-        <button class="card-action-btn" onclick="payInstallment('${c.id}')">✓ Pagar cuota</button>
-        <button class="card-action-btn" onclick="deleteCard('${c.id}')">🗑️ Eliminar</button>
-      </div>
-    </div>`).join('');
-  upcomingList.innerHTML=state.creditCards.filter(c=>c.remaining>0).map(c=>`
-    <div class="upcoming-item">
-      <div class="upcoming-info"><div class="upcoming-name">${c.desc}</div><div class="upcoming-meta">${c.bank} · ${c.remaining} cuotas restantes</div></div>
-      <div class="upcoming-amount">${formatCurrency(c.value)}</div>
-    </div>`).join('');
-  upcomingEmpty.style.display=state.creditCards.filter(c=>c.remaining>0).length===0?'block':'none';
-}
-
-window.payInstallment = async function(id) {
-  const idx=state.creditCards.findIndex(c=>c.id===id);
-  if (idx!==-1&&state.creditCards[idx].remaining>0) {
-    const newRem=state.creditCards[idx].remaining-1;
-    await fsUpdate('creditCards',id,{remaining:newRem});
-    state.creditCards[idx].remaining=newRem;
-    showToast(newRem===0?'🎉 ¡Cuota finalizada!':'Cuota pagada ✓','success');
+// ── Guardar compra/cuota sobre una tarjeta ───────────────────
+window.savePurchase = async function() {
+  const cardId       = document.getElementById('purchaseCardId').value;
+  const desc         = document.getElementById('purchaseDesc').value.trim();
+  const total        = parseFloat(document.getElementById('purchaseTotal').value);
+  const installments = parseInt(document.getElementById('purchaseInstallments').value);
+  const remaining    = parseInt(document.getElementById('purchaseRemaining').value);
+  const value        = parseFloat(document.getElementById('purchaseValue').value);
+  if (!cardId||!desc||!total||!installments||!remaining||!value) { showToast('Completá todos los campos.','error'); return; }
+  const btn=document.getElementById('savePurchaseBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  try {
+    const newDoc = await fsAdd('cardPurchases',{ cardId, desc, total, installments, remaining, value });
+    state.cardPurchases.push(newDoc);
+    closeModal('purchaseModal');
     renderCards();
+    showToast('Compra registrada ✓','success');
+  } catch(e){ showToast('Error: '+e.message,'error'); }
+  btn.disabled=false; btn.textContent='Guardar';
+};
+
+window.calcPurchaseInstallment = function() {
+  const total = parseFloat(document.getElementById('purchaseTotal').value)||0;
+  const inst  = parseInt(document.getElementById('purchaseInstallments').value)||0;
+  if (total>0&&inst>0) {
+    document.getElementById('purchaseValue').value=(total/inst).toFixed(2);
+    document.getElementById('purchaseRemaining').value=inst;
   }
 };
-window.deleteCard = id => openConfirm('card', id);
+
+// ── Abrir modal de nueva compra para una tarjeta específica ──
+window.openNewPurchase = function(cardId) {
+  const card = state.creditCards.find(c=>c.id===cardId);
+  if (!card) return;
+  document.getElementById('purchaseCardId').value   = cardId;
+  document.getElementById('purchaseCardLabel').textContent = `${card.name} — ${card.bank}`;
+  document.getElementById('purchaseDesc').value      = '';
+  document.getElementById('purchaseTotal').value     = '';
+  document.getElementById('purchaseInstallments').value = '';
+  document.getElementById('purchaseRemaining').value = '';
+  document.getElementById('purchaseValue').value     = '';
+  openModal('purchaseModal');
+};
+
+// ── Pagar una cuota → genera gasto automático ────────────────
+window.payInstallment = async function(purchaseId) {
+  const idx = state.cardPurchases.findIndex(p=>p.id===purchaseId);
+  if (idx===-1) return;
+  const p   = state.cardPurchases[idx];
+  const card= state.creditCards.find(c=>c.id===p.cardId);
+  if (p.remaining<=0) { showToast('Esta compra ya está saldada.','warning'); return; }
+  const newRem = p.remaining - 1;
+  const today  = new Date().toISOString().split('T')[0];
+  try {
+    // Actualizar cuotas restantes
+    await fsUpdate('cardPurchases', purchaseId, { remaining: newRem });
+    state.cardPurchases[idx].remaining = newRem;
+    // Registrar como gasto automático
+    const txData = {
+      date: today,
+      amount: p.value,
+      type: 'expense',
+      category: 'Tarjeta de crédito',
+      payment: card ? card.name : 'Tarjeta',
+      necessary: 'yes',
+      description: `Cuota ${p.installments - newRem}/${p.installments}: ${p.desc}`
+    };
+    const newTx = await fsAdd('transactions', txData);
+    state.transactions.unshift(newTx);
+    renderCards();
+    renderDashboard();
+    showToast(newRem===0 ? '🎉 ¡Compra saldada! Gasto registrado.' : `Cuota pagada ✓ — Gasto registrado`, 'success');
+  } catch(e){ showToast('Error: '+e.message,'error'); }
+};
+
+// ── Eliminar tarjeta con confirmación especial ───────────────
+window.deleteCard = function(cardId) {
+  const purchases = state.cardPurchases.filter(p=>p.cardId===cardId&&p.remaining>0);
+  const card      = state.creditCards.find(c=>c.id===cardId);
+  const title     = document.getElementById('confirmTitle');
+  const text      = document.getElementById('confirmText');
+  if (purchases.length>0) {
+    title.textContent = `¿Eliminar "${card?.name}"?`;
+    text.textContent  = `Esta tarjeta tiene ${purchases.length} compra${purchases.length>1?'s':''} con cuotas pendientes. Se eliminarán junto con la tarjeta.`;
+  } else {
+    title.textContent = `¿Eliminar "${card?.name}"?`;
+    text.textContent  = 'Esta acción no se puede deshacer.';
+  }
+  openConfirm('card', cardId);
+};
+
+// ── Eliminar una compra individual ───────────────────────────
+window.deletePurchase = function(id) {
+  document.getElementById('confirmTitle').textContent = '¿Eliminar esta compra?';
+  document.getElementById('confirmText').textContent  = 'Se eliminará la compra y sus cuotas pendientes.';
+  openConfirm('purchase', id);
+};
+
+function renderCards() {
+  const grid         = document.getElementById('cardsGrid');
+  const empty        = document.getElementById('cardsEmpty');
+  const upcomingList = document.getElementById('upcomingList');
+  const upcomingEmpty= document.getElementById('upcomingEmpty');
+  if (!grid) return;
+
+  if (state.creditCards.length===0) {
+    grid.innerHTML=''; empty.style.display='block';
+    upcomingList.innerHTML=''; upcomingEmpty.style.display='block'; return;
+  }
+  empty.style.display='none';
+
+  grid.innerHTML = state.creditCards.map(card => {
+    const purchases = state.cardPurchases.filter(p=>p.cardId===card.id);
+    const activePurchases = purchases.filter(p=>p.remaining>0);
+    const totalDebt = activePurchases.reduce((s,p)=>s+(p.value*p.remaining),0);
+
+    const purchasesHTML = purchases.length===0
+      ? `<div style="font-size:0.78rem;opacity:0.5;margin-top:12px;">Sin compras registradas</div>`
+      : purchases.map(p=>`
+          <div style="margin-top:10px;padding:10px;background:rgba(255,255,255,0.08);border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+              <div style="font-size:0.82rem;font-weight:600;flex:1">${p.desc}</div>
+              <button onclick="deletePurchase('${p.id}')" style="background:rgba(255,255,255,0.1);border:none;color:white;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:0.7rem;opacity:0.7;flex-shrink:0">✕</button>
+            </div>
+            <div style="font-size:0.75rem;opacity:0.65;margin-top:2px">${p.remaining} cuotas restantes de ${formatCurrency(p.value)}</div>
+            <div style="margin-top:6px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;overflow:hidden;">
+              <div style="height:100%;background:rgba(255,255,255,0.55);border-radius:2px;width:${Math.round(((p.installments-p.remaining)/p.installments)*100)}%"></div>
+            </div>
+            ${p.remaining>0?`<button class="card-action-btn" style="margin-top:8px;width:100%;justify-content:center;" onclick="payInstallment('${p.id}')">✓ Pagar cuota — ${formatCurrency(p.value)}</button>`
+            :`<div style="font-size:0.75rem;color:rgba(255,255,255,0.5);margin-top:6px;text-align:center;">✅ Saldada</div>`}
+          </div>`).join('');
+
+    return `
+      <div class="credit-card-item" style="background:linear-gradient(135deg,${card.color}dd,${card.color}99)">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+          <div>
+            <div class="card-bank">${card.bank}</div>
+            <div class="card-amount" style="font-size:1.3rem">${card.name}</div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="card-action-btn" onclick="openNewPurchase('${card.id}')">＋ Compra</button>
+            <button class="card-action-btn" onclick="deleteCard('${card.id}')">🗑️</button>
+          </div>
+        </div>
+        ${totalDebt>0?`<div style="margin-top:12px;font-size:0.78rem;opacity:0.65;">Deuda activa: <strong>${formatCurrency(totalDebt)}</strong></div>`:''}
+        ${purchasesHTML}
+      </div>`;
+  }).join('');
+
+  // Próximos pagos
+  const allActive = state.cardPurchases.filter(p=>p.remaining>0).map(p=>{
+    const card=state.creditCards.find(c=>c.id===p.cardId);
+    return {...p, cardName: card?card.name:'—'};
+  });
+  upcomingList.innerHTML = allActive.map(p=>`
+    <div class="upcoming-item">
+      <div class="upcoming-info">
+        <div class="upcoming-name">${p.desc}</div>
+        <div class="upcoming-meta">${p.cardName} · ${p.remaining} cuotas restantes</div>
+      </div>
+      <div class="upcoming-amount">${formatCurrency(p.value)}</div>
+    </div>`).join('');
+  upcomingEmpty.style.display = allActive.length===0?'block':'none';
+}
 
 // ============================================================
 // AHORROS
 // ============================================================
 window.saveSaving = async function() {
-  const name=document.getElementById('savingName').value.trim();
-  const emoji=document.getElementById('savingEmoji').value||'🎯';
-  const target=parseFloat(document.getElementById('savingTarget').value);
-  const current=parseFloat(document.getElementById('savingCurrent').value)||0;
-  const editId=document.getElementById('editSavingId').value;
+  const name    = document.getElementById('savingName').value.trim();
+  const emoji   = document.getElementById('savingEmoji').value||'🎯';
+  const target  = parseFloat(document.getElementById('savingTarget').value);
+  const current = parseFloat(document.getElementById('savingCurrent').value)||0;
+  const editId  = document.getElementById('editSavingId').value;
   if (!name||!target||target<=0){showToast('Completá todos los campos.','error');return;}
   const btn=document.getElementById('saveSavingBtn'); btn.disabled=true; btn.textContent='Guardando…';
   try {
     if (editId) {
+      const prev = state.savings.find(s=>s.id===editId);
+      const prevCurrent = prev ? prev.current : 0;
       const data={name,emoji,target,current};
       await fsUpdate('savings',editId,data);
       const idx=state.savings.findIndex(s=>s.id===editId);
       if (idx!==-1) state.savings[idx]={...state.savings[idx],...data};
+      // Registrar movimiento automático si el monto cambió
+      const diff = current - prevCurrent;
+      if (diff !== 0) {
+        const today = new Date().toISOString().split('T')[0];
+        const txData = {
+          date: today,
+          amount: Math.abs(diff),
+          type: diff > 0 ? 'income' : 'expense',
+          category: 'Ahorros',
+          payment: 'Transferencia',
+          necessary: 'yes',
+          description: diff > 0 ? `Aporte a: ${name}` : `Retiro de: ${name}`
+        };
+        const newTx = await fsAdd('transactions', txData);
+        state.transactions.unshift(newTx);
+        renderDashboard();
+      }
       showToast('Objetivo actualizado ✓','success');
     } else {
       const newDoc=await fsAdd('savings',{name,emoji,target,current});
       state.savings.push(newDoc);
+      // Si se crea con monto inicial, registrar ingreso
+      if (current>0) {
+        const today=new Date().toISOString().split('T')[0];
+        const txData={date:today,amount:current,type:'income',category:'Ahorros',payment:'Transferencia',necessary:'yes',description:`Aporte inicial a: ${name}`};
+        const newTx=await fsAdd('transactions',txData);
+        state.transactions.unshift(newTx);
+        renderDashboard();
+      }
       showToast('Objetivo creado ✓','success');
     }
     closeModal('savingModal'); renderSavings();
@@ -528,6 +673,42 @@ window.saveSaving = async function() {
   btn.disabled=false; btn.textContent='Guardar';
 };
 
+function renderSavings() {
+  const grid=document.getElementById('savingsGrid'), empty=document.getElementById('savingsEmpty');
+  if (!grid) return;
+  if (state.savings.length===0){grid.innerHTML='';empty.style.display='block';return;}
+  empty.style.display='none';
+  grid.innerHTML=state.savings.map(s=>{
+    const pct=Math.min((s.current/s.target)*100,100), fc=pct<50?'ok':pct<90?'warn':'ok';
+    return `<div class="saving-item">
+      <div class="saving-emoji">${s.emoji}</div>
+      <div class="saving-name">${s.name}</div>
+      <div class="saving-amounts">${formatCurrency(s.current)} de ${formatCurrency(s.target)}</div>
+      <div class="saving-percent"><span>Progreso</span><strong>${Math.round(pct)}%</strong></div>
+      <div class="progress-bar"><div class="progress-fill ${fc}" style="width:${pct}%"></div></div>
+      ${pct>=100?'<div style="color:var(--green);font-size:0.85rem;font-weight:600;margin-top:6px">🎉 ¡Meta alcanzada!</div>':`<div style="font-size:0.78rem;color:var(--text3);margin-top:4px">Faltan ${formatCurrency(s.target-s.current)}</div>`}
+      <div class="saving-actions">
+        <button class="btn btn-secondary btn-sm" onclick="editSaving('${s.id}')">✏️ Editar</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteSaving('${s.id}')">🗑️</button>
+      </div></div>`;
+  }).join('');
+}
+
+window.editSaving = function(id) {
+  const s=state.savings.find(sv=>sv.id===id); if (!s) return;
+  document.getElementById('editSavingId').value=s.id;
+  document.getElementById('savingModalTitle').textContent='Editar objetivo';
+  document.getElementById('savingName').value=s.name;
+  document.getElementById('savingEmoji').value=s.emoji;
+  document.getElementById('savingTarget').value=s.target;
+  document.getElementById('savingCurrent').value=s.current;
+  openModal('savingModal');
+};
+window.deleteSaving = id => {
+  document.getElementById('confirmTitle').textContent='¿Eliminar este objetivo?';
+  document.getElementById('confirmText').textContent='Esta acción no se puede deshacer.';
+  openConfirm('saving', id);
+};
 function renderSavings() {
   const grid=document.getElementById('savingsGrid'), empty=document.getElementById('savingsEmpty');
   if (!grid) return;
@@ -578,9 +759,17 @@ window.confirmDelete = async function() {
       state.budgets=state.budgets.filter(b=>b.id!==pendingDeleteId);
       renderBudget(); showToast('Presupuesto eliminado','success');
     } else if (pendingDeleteType==='card') {
+      // Eliminar todas las compras asociadas
+      const relatedPurchases = state.cardPurchases.filter(p=>p.cardId===pendingDeleteId);
+      await Promise.all(relatedPurchases.map(p=>fsDelete('cardPurchases',p.id)));
+      state.cardPurchases = state.cardPurchases.filter(p=>p.cardId!==pendingDeleteId);
       await fsDelete('creditCards',pendingDeleteId);
       state.creditCards=state.creditCards.filter(c=>c.id!==pendingDeleteId);
       renderCards(); showToast('Tarjeta eliminada','success');
+    } else if (pendingDeleteType==='purchase') {
+      await fsDelete('cardPurchases',pendingDeleteId);
+      state.cardPurchases=state.cardPurchases.filter(p=>p.id!==pendingDeleteId);
+      renderCards(); showToast('Compra eliminada','success');
     } else if (pendingDeleteType==='saving') {
       await fsDelete('savings',pendingDeleteId);
       state.savings=state.savings.filter(s=>s.id!==pendingDeleteId);
@@ -588,6 +777,9 @@ window.confirmDelete = async function() {
     }
   } catch(e){showToast('Error: '+e.message,'error');}
   btn.disabled=false; btn.textContent='Eliminar';
+  // Restaurar textos por defecto del confirm
+  document.getElementById('confirmTitle').textContent='¿Eliminar registro?';
+  document.getElementById('confirmText').textContent='Esta acción no se puede deshacer.';
   closeConfirm();
 };
 
