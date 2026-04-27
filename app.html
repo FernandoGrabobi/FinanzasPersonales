@@ -5,15 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FlowFinance — Mi cuenta</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="./flowfinance.css">
-<link rel="icon" href="./assets/logosinfondo.png" type="image/png">
+<link rel="stylesheet" href="flowfinance.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 </head>
 <body>
 
-<!-- ============================================================
-  FIREBASE — reemplazá con tu configuración real
-  ============================================================ -->
 <script type="module">
 import { initializeApp }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
@@ -21,11 +17,11 @@ import { getAuth, onAuthStateChanged, signOut }
   from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import {
   getFirestore, collection, doc,
-  addDoc, setDoc, updateDoc, deleteDoc,
-  getDocs, query, where, orderBy, serverTimestamp
+  addDoc, updateDoc, deleteDoc,
+  getDocs, query, orderBy, serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
 
-// ── Config (igual que en index.html) ─────────────────────────
+// ── REEMPLAZÁ CON TU CONFIG ───────────────────────────────────
 const firebaseConfig = {
   apiKey: "AIzaSyDSNQRgkML8GRarOJK5Ulax2L4nsrcRFBk",
   authDomain: "finanzas-aabd2.firebaseapp.com",
@@ -39,48 +35,33 @@ const app  = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db   = getFirestore(app);
 
-// ── Rutas de Firestore por usuario ──────────────────────────
-// Estructura: users/{uid}/transactions/{docId}
-//             users/{uid}/budgets/{docId}
-//             users/{uid}/creditCards/{docId}
-//             users/{uid}/savings/{docId}
 let uid = null;
 const col = name => collection(db, 'users', uid, name);
 const ref = (name, id) => doc(db, 'users', uid, name, id);
 
-// ── Guard: si no está logueado → redirigir ───────────────────
+// ── AUTH GUARD ────────────────────────────────────────────────
 onAuthStateChanged(auth, async user => {
   if (!user) { window.location.href = 'index.html'; return; }
   uid = user.uid;
-
-  // Mostrar nombre/email en topbar
   const display = user.displayName || user.email.split('@')[0];
   document.getElementById('userDisplay').textContent = display;
   document.getElementById('userAvatar').textContent  = display[0].toUpperCase();
-
-  // Cargar tema guardado
   const theme = localStorage.getItem('ff_theme_' + uid) || 'light';
   document.documentElement.setAttribute('data-theme', theme);
   document.getElementById('themeIcon').textContent  = theme === 'dark' ? '☀️' : '🌙';
   document.getElementById('themeLabel').textContent = theme === 'dark' ? 'Modo claro' : 'Modo oscuro';
-
-  // Mostrar app y cargar datos
   document.getElementById('loadingScreen').style.display = 'none';
   document.getElementById('appWrapper').style.display    = 'flex';
   await loadAllData();
   renderDashboard();
 });
 
-// ── Logout ───────────────────────────────────────────────────
-window.doLogout = async () => {
-  await signOut(auth);
-  window.location.href = 'index.html';
-};
+window.doLogout = async () => { await signOut(auth); window.location.href = 'index.html'; };
 
 // ============================================================
-// ESTADO LOCAL (caché en memoria)
+// ESTADO
 // ============================================================
-let state = { transactions: [], budgets: [], creditCards: [], cardPurchases: [], savings: [] };
+let state = { transactions:[], budgets:[], creditCards:[], cardPurchases:[], savings:[] };
 let selectedType = 'income';
 let pendingDeleteType = null, pendingDeleteId = null;
 let monthlyChart = null, categoryChart = null;
@@ -89,16 +70,17 @@ const CAT_COLORS = {
   'Alimentación':'#2d7a4f','Transporte':'#2563a8','Vivienda':'#7c3aed','Salud':'#e05a4a',
   'Educación':'#0891b2','Entretenimiento':'#d97706','Ropa':'#db2777','Servicios':'#059669',
   'Tecnología':'#4338ca','Restaurantes':'#c2410c','Viajes':'#0284c7','Mascotas':'#65a30d',
-  'Sueldo':'#16a34a','Freelance':'#ca8a04','Inversiones':'#2563a8','Otros':'#6b7280'
+  'Sueldo':'#16a34a','Freelance':'#ca8a04','Inversiones':'#2563a8',
+  'Tarjeta de crédito':'#7c3aed','Ahorros':'#0891b2','Otros':'#6b7280'
 };
 
 // ============================================================
-// FIRESTORE — CRUD HELPERS
+// FIRESTORE HELPERS
 // ============================================================
 async function loadAllData() {
   showLoading(true);
   try {
-   const [txSnap, budgSnap, cardSnap, purchSnap, savSnap] = await Promise.all([
+    const [txSnap, budgSnap, cardSnap, purchSnap, savSnap] = await Promise.all([
       getDocs(query(col('transactions'), orderBy('date','desc'))),
       getDocs(col('budgets')),
       getDocs(col('creditCards')),
@@ -110,29 +92,17 @@ async function loadAllData() {
     state.creditCards   = cardSnap.docs.map(d  => ({ id: d.id, ...d.data() }));
     state.cardPurchases = purchSnap.docs.map(d => ({ id: d.id, ...d.data() }));
     state.savings       = savSnap.docs.map(d   => ({ id: d.id, ...d.data() }));
-  } catch(e) {
-    showToast('Error cargando datos: ' + e.message, 'error');
-  }
+  } catch(e) { showToast('Error cargando datos: ' + e.message, 'error'); }
   showLoading(false);
 }
 
-// Agregar documento y devolver con id
 async function fsAdd(colName, data) {
   const docRef = await addDoc(col(colName), { ...data, createdAt: serverTimestamp() });
   return { id: docRef.id, ...data };
 }
-// Actualizar
-async function fsUpdate(colName, id, data) {
-  await updateDoc(ref(colName, id), data);
-}
-// Eliminar
-async function fsDelete(colName, id) {
-  await deleteDoc(ref(colName, id));
-}
-
-function showLoading(on) {
-  document.getElementById('globalSpinner').style.display = on ? 'flex' : 'none';
-}
+async function fsUpdate(colName, id, data) { await updateDoc(ref(colName, id), data); }
+async function fsDelete(colName, id)       { await deleteDoc(ref(colName, id)); }
+function showLoading(on) { document.getElementById('globalSpinner').style.display = on ? 'flex' : 'none'; }
 
 // ============================================================
 // NAVEGACIÓN
@@ -151,7 +121,6 @@ window.showPage = function(id, el) {
   if (id === 'cards')        renderCards();
   if (id === 'savings')      renderSavings();
 };
-
 window.openSidebar  = () => { document.getElementById('sidebar').classList.add('open'); document.getElementById('sidebarOverlay').classList.add('show'); };
 window.closeSidebar = () => { document.getElementById('sidebar').classList.remove('open'); document.getElementById('sidebarOverlay').classList.remove('show'); };
 
@@ -160,7 +129,6 @@ window.closeSidebar = () => { document.getElementById('sidebar').classList.remov
 // ============================================================
 window.openModal  = id => { if (id === 'transactionModal') resetTransactionForm(); document.getElementById(id).classList.add('open'); };
 window.closeModal = id => document.getElementById(id).classList.remove('open');
-
 document.querySelectorAll('.modal-overlay').forEach(o =>
   o.addEventListener('click', function(e) { if (e.target === this) closeModal(this.id); })
 );
@@ -198,7 +166,6 @@ window.saveTransaction = async function() {
   }
   const btn = document.getElementById('saveTxBtn');
   btn.disabled = true; btn.textContent = 'Guardando…';
-
   const editId = document.getElementById('editTransactionId').value;
   try {
     if (editId) {
@@ -214,18 +181,13 @@ window.saveTransaction = async function() {
       showToast('Movimiento agregado ✓','success');
     }
     closeModal('transactionModal');
-    renderDashboard();
-    renderTransactions();
-    checkBudgetAlerts();
-  } catch(e) {
-    showToast('Error: ' + e.message,'error');
-  }
+    renderDashboard(); renderTransactions(); checkBudgetAlerts();
+  } catch(e) { showToast('Error: ' + e.message,'error'); }
   btn.disabled = false; btn.textContent = 'Guardar';
 };
 
 window.editTransaction = function(id) {
-  const tx = state.transactions.find(t => t.id === id);
-  if (!tx) return;
+  const tx = state.transactions.find(t => t.id === id); if (!tx) return;
   document.getElementById('editTransactionId').value = tx.id;
   document.getElementById('transactionModalTitle').textContent = 'Editar movimiento';
   document.getElementById('txDate').value        = tx.date;
@@ -238,26 +200,26 @@ window.editTransaction = function(id) {
   openModal('transactionModal');
 };
 
-window.deleteTransaction = id => openConfirm('transaction', id);
+window.deleteTransaction = id => {
+  setConfirmText('¿Eliminar este movimiento?', 'Esta acción no se puede deshacer.');
+  openConfirm('transaction', id);
+};
 
 window.renderTransactions = function() {
   const search      = (document.getElementById('searchInput')?.value || '').toLowerCase();
   const typeFilter  = document.getElementById('filterType')?.value  || '';
   const catFilter   = document.getElementById('filterCategory')?.value || '';
   const monthFilter = document.getElementById('filterMonth')?.value || '';
-
   let txs = [...state.transactions].sort((a,b) => new Date(b.date)-new Date(a.date));
   if (search)      txs = txs.filter(t => t.description.toLowerCase().includes(search) || t.category.toLowerCase().includes(search));
   if (typeFilter)  txs = txs.filter(t => t.type === typeFilter);
   if (catFilter)   txs = txs.filter(t => t.category === catFilter);
   if (monthFilter) txs = txs.filter(t => t.date.startsWith(monthFilter));
-
   const tbody = document.getElementById('transactionsBody');
   const empty = document.getElementById('transactionsEmpty');
   if (!tbody) return;
   if (txs.length === 0) { tbody.innerHTML = ''; if (empty) empty.style.display='block'; return; }
   if (empty) empty.style.display = 'none';
-
   tbody.innerHTML = txs.map(t => `
     <tr>
       <td>${formatDate(t.date)}</td>
@@ -272,14 +234,13 @@ window.renderTransactions = function() {
         <button class="action-btn delete-btn" onclick="deleteTransaction('${t.id}')">🗑️</button>
       </td>
     </tr>`).join('');
-}
+};
 
 window.populateCategoryFilter = function() {
-  const sel = document.getElementById('filterCategory');
-  if (!sel) return;
+  const sel = document.getElementById('filterCategory'); if (!sel) return;
   const used = [...new Set(state.transactions.map(t=>t.category))].sort();
   sel.innerHTML = '<option value="">Todas las categorías</option>' + used.map(c=>`<option value="${c}">${c}</option>`).join('');
-}
+};
 
 // ============================================================
 // DASHBOARD
@@ -295,14 +256,12 @@ function renderDashboard() {
   const income  = monthly.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
   const expense = monthly.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
   const balance = income - expense;
-
   document.getElementById('totalIncome').textContent  = formatCurrency(income);
   document.getElementById('totalExpense').textContent = formatCurrency(expense);
   document.getElementById('totalBalance').textContent = formatCurrency(balance);
   document.getElementById('incomeCount').textContent  = `${monthly.filter(t=>t.type==='income').length} transacciones`;
   document.getElementById('expenseCount').textContent = `${monthly.filter(t=>t.type==='expense').length} transacciones`;
   document.getElementById('balanceStatus').textContent = balance >= 0 ? '✅ Buen estado' : '⚠️ Déficit';
-
   const recent = [...state.transactions].sort((a,b)=>new Date(b.date)-new Date(a.date)).slice(0,5);
   const tbody  = document.getElementById('recentTransactionsBody');
   if (tbody) tbody.innerHTML = recent.length === 0
@@ -315,15 +274,11 @@ function renderDashboard() {
         <td><span class="badge ${t.type==='income'?'badge-income':'badge-expense'}">${t.type==='income'?'↑':'↓'} ${t.type==='income'?'Ingreso':'Gasto'}</span></td>
         <td class="${t.type==='income'?'amount-income':'amount-expense'}">${t.type==='income'?'+':'-'}${formatCurrency(t.amount)}</td>
       </tr>`).join('');
-
-  renderMonthlyChart();
-  renderCategoryChart();
-  checkBudgetAlerts();
+  renderMonthlyChart(); renderCategoryChart(); checkBudgetAlerts();
 }
 
 function renderMonthlyChart() {
-  const ctx = document.getElementById('monthlyChart');
-  if (!ctx) return;
+  const ctx = document.getElementById('monthlyChart'); if (!ctx) return;
   const months=[], incomes=[], expenses=[];
   for (let i=5;i>=0;i--) {
     const d=new Date(); d.setMonth(d.getMonth()-i);
@@ -351,8 +306,7 @@ function renderMonthlyChart() {
 }
 
 function renderCategoryChart() {
-  const wrapper = document.getElementById('categoryChartWrapper');
-  if (!wrapper) return;
+  const wrapper = document.getElementById('categoryChartWrapper'); if (!wrapper) return;
   const monthly = getMonthTransactions().filter(t=>t.type==='expense');
   const catMap={};
   monthly.forEach(t=>{catMap[t.category]=(catMap[t.category]||0)+t.amount;});
@@ -382,15 +336,9 @@ window.saveBudget = async function() {
   btn.disabled=true; btn.textContent='Guardando…';
   try {
     const existing = state.budgets.find(b=>b.category===category);
-    if (existing) {
-      await fsUpdate('budgets', existing.id, { amount });
-      existing.amount = amount;
-    } else {
-      const newDoc = await fsAdd('budgets', { category, amount });
-      state.budgets.push(newDoc);
-    }
-    closeModal('budgetModal');
-    renderBudget();
+    if (existing) { await fsUpdate('budgets', existing.id, { amount }); existing.amount = amount; }
+    else { const newDoc = await fsAdd('budgets', { category, amount }); state.budgets.push(newDoc); }
+    closeModal('budgetModal'); renderBudget();
     showToast('Presupuesto guardado ✓','success');
     document.getElementById('budgetCategory').value='';
     document.getElementById('budgetAmount').value='';
@@ -420,7 +368,10 @@ function renderBudget() {
   }).join('');
 }
 
-window.deleteBudget = id => openConfirm('budget', id);
+window.deleteBudget = id => {
+  setConfirmText('¿Eliminar este presupuesto?','Esta acción no se puede deshacer.');
+  openConfirm('budget', id);
+};
 
 function checkBudgetAlerts() {
   const container=document.getElementById('budgetAlerts'); if (!container) return;
@@ -431,46 +382,38 @@ function checkBudgetAlerts() {
 }
 
 // ============================================================
-// TARJETAS
+// TARJETAS — permanentes con múltiples compras
 // ============================================================
 
-// ── Guardar tarjeta (solo nombre/banco) ──────────────────────
 window.saveCard = async function() {
   const name  = document.getElementById('cardName').value.trim();
   const bank  = document.getElementById('cardBankName').value.trim();
   const color = document.getElementById('cardColor').value || '#1a2436';
-  if (!name || !bank) { showToast('Completá todos los campos.','error'); return; }
-  const btn = document.getElementById('saveCardBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  if (!name || !bank) { showToast('Completá nombre y banco.','error'); return; }
+  const btn = document.getElementById('saveCardBtn');
+  btn.disabled=true; btn.textContent='Guardando…';
   try {
     const newDoc = await fsAdd('creditCards', { name, bank, color });
     state.creditCards.push(newDoc);
     closeModal('cardModal');
     renderCards();
-    showToast('Tarjeta registrada ✓','success');
+    showToast('Tarjeta guardada ✓','success');
     document.getElementById('cardName').value='';
     document.getElementById('cardBankName').value='';
   } catch(e){ showToast('Error: '+e.message,'error'); }
   btn.disabled=false; btn.textContent='Guardar';
 };
 
-// ── Guardar compra/cuota sobre una tarjeta ───────────────────
-window.savePurchase = async function() {
-  const cardId       = document.getElementById('purchaseCardId').value;
-  const desc         = document.getElementById('purchaseDesc').value.trim();
-  const total        = parseFloat(document.getElementById('purchaseTotal').value);
-  const installments = parseInt(document.getElementById('purchaseInstallments').value);
-  const remaining    = parseInt(document.getElementById('purchaseRemaining').value);
-  const value        = parseFloat(document.getElementById('purchaseValue').value);
-  if (!cardId||!desc||!total||!installments||!remaining||!value) { showToast('Completá todos los campos.','error'); return; }
-  const btn=document.getElementById('savePurchaseBtn'); btn.disabled=true; btn.textContent='Guardando…';
-  try {
-    const newDoc = await fsAdd('cardPurchases',{ cardId, desc, total, installments, remaining, value });
-    state.cardPurchases.push(newDoc);
-    closeModal('purchaseModal');
-    renderCards();
-    showToast('Compra registrada ✓','success');
-  } catch(e){ showToast('Error: '+e.message,'error'); }
-  btn.disabled=false; btn.textContent='Guardar';
+window.openNewPurchase = function(cardId) {
+  const card = state.creditCards.find(c=>c.id===cardId); if (!card) return;
+  document.getElementById('purchaseCardId').value = cardId;
+  document.getElementById('purchaseCardLabel').textContent = `${card.name} — ${card.bank}`;
+  document.getElementById('purchaseDesc').value        = '';
+  document.getElementById('purchaseTotal').value       = '';
+  document.getElementById('purchaseInstallments').value= '';
+  document.getElementById('purchaseRemaining').value   = '';
+  document.getElementById('purchaseValue').value       = '';
+  openModal('purchaseModal');
 };
 
 window.calcPurchaseInstallment = function() {
@@ -482,31 +425,39 @@ window.calcPurchaseInstallment = function() {
   }
 };
 
-// ── Abrir modal de nueva compra para una tarjeta específica ──
-window.openNewPurchase = function(cardId) {
-  const card = state.creditCards.find(c=>c.id===cardId);
-  if (!card) return;
-  document.getElementById('purchaseCardId').value   = cardId;
-  document.getElementById('purchaseCardLabel').textContent = `${card.name} — ${card.bank}`;
-  document.getElementById('purchaseDesc').value      = '';
-  document.getElementById('purchaseTotal').value     = '';
-  document.getElementById('purchaseInstallments').value = '';
-  document.getElementById('purchaseRemaining').value = '';
-  document.getElementById('purchaseValue').value     = '';
-  openModal('purchaseModal');
+window.savePurchase = async function() {
+  const cardId       = document.getElementById('purchaseCardId').value;
+  const desc         = document.getElementById('purchaseDesc').value.trim();
+  const total        = parseFloat(document.getElementById('purchaseTotal').value);
+  const installments = parseInt(document.getElementById('purchaseInstallments').value);
+  const remaining    = parseInt(document.getElementById('purchaseRemaining').value);
+  const value        = parseFloat(document.getElementById('purchaseValue').value);
+  if (!cardId||!desc||!total||!installments||!remaining||!value) {
+    showToast('Completá todos los campos.','error'); return;
+  }
+  const btn=document.getElementById('savePurchaseBtn');
+  btn.disabled=true; btn.textContent='Guardando…';
+  try {
+    const newDoc = await fsAdd('cardPurchases',{ cardId, desc, total, installments, remaining, value });
+    state.cardPurchases.push(newDoc);
+    closeModal('purchaseModal');
+    renderCards();
+    showToast('Compra registrada ✓','success');
+  } catch(e){ showToast('Error: '+e.message,'error'); }
+  btn.disabled=false; btn.textContent='Guardar';
 };
 
-// ── Pagar una cuota → genera gasto automático ────────────────
+// Pagar cuota → genera gasto automático en movimientos
 window.payInstallment = async function(purchaseId) {
   const idx = state.cardPurchases.findIndex(p=>p.id===purchaseId);
   if (idx===-1) return;
-  const p   = state.cardPurchases[idx];
-  const card= state.creditCards.find(c=>c.id===p.cardId);
+  const p    = state.cardPurchases[idx];
+  const card = state.creditCards.find(c=>c.id===p.cardId);
   if (p.remaining<=0) { showToast('Esta compra ya está saldada.','warning'); return; }
-  const newRem = p.remaining - 1;
-  const today  = new Date().toISOString().split('T')[0];
+  const newRem   = p.remaining - 1;
+  const cuotaNum = p.installments - newRem;
+  const today    = new Date().toISOString().split('T')[0];
   try {
-    // Actualizar cuotas restantes
     await fsUpdate('cardPurchases', purchaseId, { remaining: newRem });
     state.cardPurchases[idx].remaining = newRem;
     // Registrar como gasto automático
@@ -517,44 +468,41 @@ window.payInstallment = async function(purchaseId) {
       category: 'Tarjeta de crédito',
       payment: card ? card.name : 'Tarjeta',
       necessary: 'yes',
-      description: `Cuota ${p.installments - newRem}/${p.installments}: ${p.desc}`
+      description: `Cuota ${cuotaNum}/${p.installments}: ${p.desc}`
     };
     const newTx = await fsAdd('transactions', txData);
     state.transactions.unshift(newTx);
     renderCards();
     renderDashboard();
-    showToast(newRem===0 ? '🎉 ¡Compra saldada! Gasto registrado.' : `Cuota pagada ✓ — Gasto registrado`, 'success');
+    checkBudgetAlerts();
+    showToast(newRem===0 ? '🎉 ¡Compra saldada! Gasto registrado.' : `Cuota ${cuotaNum}/${p.installments} pagada ✓`, 'success');
   } catch(e){ showToast('Error: '+e.message,'error'); }
 };
 
-// ── Eliminar tarjeta con confirmación especial ───────────────
 window.deleteCard = function(cardId) {
-  const purchases = state.cardPurchases.filter(p=>p.cardId===cardId&&p.remaining>0);
-  const card      = state.creditCards.find(c=>c.id===cardId);
-  const title     = document.getElementById('confirmTitle');
-  const text      = document.getElementById('confirmText');
-  if (purchases.length>0) {
-    title.textContent = `¿Eliminar "${card?.name}"?`;
-    text.textContent  = `Esta tarjeta tiene ${purchases.length} compra${purchases.length>1?'s':''} con cuotas pendientes. Se eliminarán junto con la tarjeta.`;
+  const card          = state.creditCards.find(c=>c.id===cardId);
+  const activePurch   = state.cardPurchases.filter(p=>p.cardId===cardId&&p.remaining>0);
+  if (activePurch.length>0) {
+    setConfirmText(
+      `¿Eliminar "${card?.name}"?`,
+      `Tiene ${activePurch.length} compra${activePurch.length>1?'s':''} con cuotas pendientes. Se eliminarán junto con la tarjeta.`
+    );
   } else {
-    title.textContent = `¿Eliminar "${card?.name}"?`;
-    text.textContent  = 'Esta acción no se puede deshacer.';
+    setConfirmText(`¿Eliminar "${card?.name}"?`, 'Esta acción no se puede deshacer.');
   }
   openConfirm('card', cardId);
 };
 
-// ── Eliminar una compra individual ───────────────────────────
 window.deletePurchase = function(id) {
-  document.getElementById('confirmTitle').textContent = '¿Eliminar esta compra?';
-  document.getElementById('confirmText').textContent  = 'Se eliminará la compra y sus cuotas pendientes.';
+  setConfirmText('¿Eliminar esta compra?','Se eliminarán todas las cuotas pendientes.');
   openConfirm('purchase', id);
 };
 
 function renderCards() {
-  const grid         = document.getElementById('cardsGrid');
-  const empty        = document.getElementById('cardsEmpty');
-  const upcomingList = document.getElementById('upcomingList');
-  const upcomingEmpty= document.getElementById('upcomingEmpty');
+  const grid          = document.getElementById('cardsGrid');
+  const empty         = document.getElementById('cardsEmpty');
+  const upcomingList  = document.getElementById('upcomingList');
+  const upcomingEmpty = document.getElementById('upcomingEmpty');
   if (!grid) return;
 
   if (state.creditCards.length===0) {
@@ -564,48 +512,70 @@ function renderCards() {
   empty.style.display='none';
 
   grid.innerHTML = state.creditCards.map(card => {
-    const purchases = state.cardPurchases.filter(p=>p.cardId===card.id);
+    const purchases       = state.cardPurchases.filter(p=>p.cardId===card.id);
     const activePurchases = purchases.filter(p=>p.remaining>0);
-    const totalDebt = activePurchases.reduce((s,p)=>s+(p.value*p.remaining),0);
+    const totalDebt       = activePurchases.reduce((s,p)=>s+(p.value*p.remaining),0);
+    const cardBg          = card.color || '#1a2436';
 
     const purchasesHTML = purchases.length===0
-      ? `<div style="font-size:0.78rem;opacity:0.5;margin-top:12px;">Sin compras registradas</div>`
-      : purchases.map(p=>`
-          <div style="margin-top:10px;padding:10px;background:rgba(255,255,255,0.08);border-radius:8px;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
-              <div style="font-size:0.82rem;font-weight:600;flex:1">${p.desc}</div>
-              <button onclick="deletePurchase('${p.id}')" style="background:rgba(255,255,255,0.1);border:none;color:white;border-radius:4px;padding:2px 6px;cursor:pointer;font-size:0.7rem;opacity:0.7;flex-shrink:0">✕</button>
+      ? `<div style="font-size:0.78rem;opacity:0.5;margin-top:14px;text-align:center;">Sin compras. Presioná "＋ Nueva compra".</div>`
+      : purchases.map(p => {
+          const paid = p.installments - p.remaining;
+          const pct  = Math.round((paid/p.installments)*100);
+          return `
+          <div style="margin-top:10px;padding:10px 12px;background:rgba(255,255,255,0.1);border-radius:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+              <div style="font-size:0.82rem;font-weight:600;flex:1;line-height:1.3">${p.desc}</div>
+              <button onclick="deletePurchase('${p.id}')" title="Eliminar compra"
+                style="background:rgba(255,255,255,0.15);border:none;color:white;border-radius:4px;
+                       padding:2px 7px;cursor:pointer;font-size:0.7rem;flex-shrink:0;">✕</button>
             </div>
-            <div style="font-size:0.75rem;opacity:0.65;margin-top:2px">${p.remaining} cuotas restantes de ${formatCurrency(p.value)}</div>
-            <div style="margin-top:6px;height:4px;background:rgba(255,255,255,0.15);border-radius:2px;overflow:hidden;">
-              <div style="height:100%;background:rgba(255,255,255,0.55);border-radius:2px;width:${Math.round(((p.installments-p.remaining)/p.installments)*100)}%"></div>
+            <div style="font-size:0.75rem;opacity:0.65;margin-top:3px;">
+              ${p.remaining > 0 ? `${p.remaining} cuotas restantes de ${formatCurrency(p.value)}` : '✅ Saldada'}
             </div>
-            ${p.remaining>0?`<button class="card-action-btn" style="margin-top:8px;width:100%;justify-content:center;" onclick="payInstallment('${p.id}')">✓ Pagar cuota — ${formatCurrency(p.value)}</button>`
-            :`<div style="font-size:0.75rem;color:rgba(255,255,255,0.5);margin-top:6px;text-align:center;">✅ Saldada</div>`}
-          </div>`).join('');
+            <div style="margin:6px 0 0;height:4px;background:rgba(255,255,255,0.2);border-radius:2px;overflow:hidden;">
+              <div style="height:100%;background:rgba(255,255,255,0.6);border-radius:2px;width:${pct}%;"></div>
+            </div>
+            ${p.remaining>0
+              ? `<button onclick="payInstallment('${p.id}')"
+                   style="margin-top:8px;width:100%;padding:7px;border-radius:6px;border:none;
+                          background:rgba(255,255,255,0.15);color:white;font-size:0.78rem;
+                          font-weight:600;cursor:pointer;font-family:inherit;">
+                   ✓ Pagar cuota — ${formatCurrency(p.value)}
+                 </button>`
+              : ''}
+          </div>`;
+        }).join('');
 
     return `
-      <div class="credit-card-item" style="background:linear-gradient(135deg,${card.color}dd,${card.color}99)">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div class="credit-card-item" style="background:linear-gradient(135deg,${cardBg}ee,${cardBg}99);">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px;">
           <div>
             <div class="card-bank">${card.bank}</div>
-            <div class="card-amount" style="font-size:1.3rem">${card.name}</div>
+            <div class="card-amount" style="font-size:1.4rem;margin-bottom:0;">${card.name}</div>
           </div>
-          <div style="display:flex;gap:6px;">
-            <button class="card-action-btn" onclick="openNewPurchase('${card.id}')">＋ Compra</button>
-            <button class="card-action-btn" onclick="deleteCard('${card.id}')">🗑️</button>
+          <div style="display:flex;gap:6px;flex-shrink:0;">
+            <button onclick="openNewPurchase('${card.id}')"
+              style="padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.3);
+                     background:rgba(255,255,255,0.12);color:white;font-size:0.75rem;
+                     font-weight:600;cursor:pointer;font-family:inherit;">＋ Nueva compra</button>
+            <button onclick="deleteCard('${card.id}')"
+              style="padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);
+                     background:rgba(255,255,255,0.08);color:white;font-size:0.78rem;
+                     cursor:pointer;font-family:inherit;">🗑️</button>
           </div>
         </div>
-        ${totalDebt>0?`<div style="margin-top:12px;font-size:0.78rem;opacity:0.65;">Deuda activa: <strong>${formatCurrency(totalDebt)}</strong></div>`:''}
+        ${totalDebt>0
+          ? `<div style="font-size:0.78rem;opacity:0.7;">Deuda activa: <strong>${formatCurrency(totalDebt)}</strong></div>`
+          : `<div style="font-size:0.78rem;opacity:0.45;">Sin deuda activa</div>`}
         ${purchasesHTML}
       </div>`;
   }).join('');
 
-  // Próximos pagos
-  const allActive = state.cardPurchases.filter(p=>p.remaining>0).map(p=>{
-    const card=state.creditCards.find(c=>c.id===p.cardId);
-    return {...p, cardName: card?card.name:'—'};
-  });
+  const allActive = state.cardPurchases
+    .filter(p=>p.remaining>0)
+    .map(p => ({ ...p, cardName: (state.creditCards.find(c=>c.id===p.cardId)||{}).name||'—' }));
+
   upcomingList.innerHTML = allActive.map(p=>`
     <div class="upcoming-item">
       <div class="upcoming-info">
@@ -614,11 +584,11 @@ function renderCards() {
       </div>
       <div class="upcoming-amount">${formatCurrency(p.value)}</div>
     </div>`).join('');
-  upcomingEmpty.style.display = allActive.length===0?'block':'none';
+  upcomingEmpty.style.display = allActive.length===0 ? 'block' : 'none';
 }
 
 // ============================================================
-// AHORROS
+// AHORROS — aportes y retiros generan movimientos automáticos
 // ============================================================
 window.saveSaving = async function() {
   const name    = document.getElementById('savingName').value.trim();
@@ -626,27 +596,25 @@ window.saveSaving = async function() {
   const target  = parseFloat(document.getElementById('savingTarget').value);
   const current = parseFloat(document.getElementById('savingCurrent').value)||0;
   const editId  = document.getElementById('editSavingId').value;
-  if (!name||!target||target<=0){showToast('Completá todos los campos.','error');return;}
-  const btn=document.getElementById('saveSavingBtn'); btn.disabled=true; btn.textContent='Guardando…';
+  if (!name||!target||target<=0){ showToast('Completá todos los campos.','error'); return; }
+  const btn=document.getElementById('saveSavingBtn');
+  btn.disabled=true; btn.textContent='Guardando…';
   try {
     if (editId) {
-      const prev = state.savings.find(s=>s.id===editId);
-      const prevCurrent = prev ? prev.current : 0;
-      const data={name,emoji,target,current};
-      await fsUpdate('savings',editId,data);
-      const idx=state.savings.findIndex(s=>s.id===editId);
-      if (idx!==-1) state.savings[idx]={...state.savings[idx],...data};
-      // Registrar movimiento automático si el monto cambió
+      const prev        = state.savings.find(s=>s.id===editId);
+      const prevCurrent = prev ? (prev.current||0) : 0;
+      const data        = { name, emoji, target, current };
+      await fsUpdate('savings', editId, data);
+      const idx = state.savings.findIndex(s=>s.id===editId);
+      if (idx!==-1) state.savings[idx] = { ...state.savings[idx], ...data };
+      // Registrar movimiento si cambió el monto
       const diff = current - prevCurrent;
       if (diff !== 0) {
         const today = new Date().toISOString().split('T')[0];
         const txData = {
-          date: today,
-          amount: Math.abs(diff),
+          date: today, amount: Math.abs(diff),
           type: diff > 0 ? 'income' : 'expense',
-          category: 'Ahorros',
-          payment: 'Transferencia',
-          necessary: 'yes',
+          category: 'Ahorros', payment: 'Transferencia', necessary: 'yes',
           description: diff > 0 ? `Aporte a: ${name}` : `Retiro de: ${name}`
         };
         const newTx = await fsAdd('transactions', txData);
@@ -655,13 +623,12 @@ window.saveSaving = async function() {
       }
       showToast('Objetivo actualizado ✓','success');
     } else {
-      const newDoc=await fsAdd('savings',{name,emoji,target,current});
+      const newDoc = await fsAdd('savings',{ name, emoji, target, current });
       state.savings.push(newDoc);
-      // Si se crea con monto inicial, registrar ingreso
       if (current>0) {
-        const today=new Date().toISOString().split('T')[0];
-        const txData={date:today,amount:current,type:'income',category:'Ahorros',payment:'Transferencia',necessary:'yes',description:`Aporte inicial a: ${name}`};
-        const newTx=await fsAdd('transactions',txData);
+        const today = new Date().toISOString().split('T')[0];
+        const txData = { date:today, amount:current, type:'income', category:'Ahorros', payment:'Transferencia', necessary:'yes', description:`Aporte inicial a: ${name}` };
+        const newTx = await fsAdd('transactions', txData);
         state.transactions.unshift(newTx);
         renderDashboard();
       }
@@ -669,60 +636,27 @@ window.saveSaving = async function() {
     }
     closeModal('savingModal'); renderSavings();
     document.getElementById('editSavingId').value='';
-  } catch(e){showToast('Error: '+e.message,'error');}
+  } catch(e){ showToast('Error: '+e.message,'error'); }
   btn.disabled=false; btn.textContent='Guardar';
 };
 
 function renderSavings() {
   const grid=document.getElementById('savingsGrid'), empty=document.getElementById('savingsEmpty');
   if (!grid) return;
-  if (state.savings.length===0){grid.innerHTML='';empty.style.display='block';return;}
+  if (state.savings.length===0){ grid.innerHTML=''; empty.style.display='block'; return; }
   empty.style.display='none';
   grid.innerHTML=state.savings.map(s=>{
-    const pct=Math.min((s.current/s.target)*100,100), fc=pct<50?'ok':pct<90?'warn':'ok';
+    const pct=Math.min(((s.current||0)/s.target)*100,100);
+    const fc=pct<50?'ok':pct<90?'warn':'ok';
     return `<div class="saving-item">
       <div class="saving-emoji">${s.emoji}</div>
       <div class="saving-name">${s.name}</div>
-      <div class="saving-amounts">${formatCurrency(s.current)} de ${formatCurrency(s.target)}</div>
+      <div class="saving-amounts">${formatCurrency(s.current||0)} de ${formatCurrency(s.target)}</div>
       <div class="saving-percent"><span>Progreso</span><strong>${Math.round(pct)}%</strong></div>
       <div class="progress-bar"><div class="progress-fill ${fc}" style="width:${pct}%"></div></div>
-      ${pct>=100?'<div style="color:var(--green);font-size:0.85rem;font-weight:600;margin-top:6px">🎉 ¡Meta alcanzada!</div>':`<div style="font-size:0.78rem;color:var(--text3);margin-top:4px">Faltan ${formatCurrency(s.target-s.current)}</div>`}
-      <div class="saving-actions">
-        <button class="btn btn-secondary btn-sm" onclick="editSaving('${s.id}')">✏️ Editar</button>
-        <button class="btn btn-danger btn-sm" onclick="deleteSaving('${s.id}')">🗑️</button>
-      </div></div>`;
-  }).join('');
-}
-
-window.editSaving = function(id) {
-  const s=state.savings.find(sv=>sv.id===id); if (!s) return;
-  document.getElementById('editSavingId').value=s.id;
-  document.getElementById('savingModalTitle').textContent='Editar objetivo';
-  document.getElementById('savingName').value=s.name;
-  document.getElementById('savingEmoji').value=s.emoji;
-  document.getElementById('savingTarget').value=s.target;
-  document.getElementById('savingCurrent').value=s.current;
-  openModal('savingModal');
-};
-window.deleteSaving = id => {
-  document.getElementById('confirmTitle').textContent='¿Eliminar este objetivo?';
-  document.getElementById('confirmText').textContent='Esta acción no se puede deshacer.';
-  openConfirm('saving', id);
-};
-function renderSavings() {
-  const grid=document.getElementById('savingsGrid'), empty=document.getElementById('savingsEmpty');
-  if (!grid) return;
-  if (state.savings.length===0){grid.innerHTML='';empty.style.display='block';return;}
-  empty.style.display='none';
-  grid.innerHTML=state.savings.map(s=>{
-    const pct=Math.min((s.current/s.target)*100,100), fc=pct<50?'ok':pct<90?'warn':'ok';
-    return `<div class="saving-item">
-      <div class="saving-emoji">${s.emoji}</div>
-      <div class="saving-name">${s.name}</div>
-      <div class="saving-amounts">${formatCurrency(s.current)} de ${formatCurrency(s.target)}</div>
-      <div class="saving-percent"><span>Progreso</span><strong>${Math.round(pct)}%</strong></div>
-      <div class="progress-bar"><div class="progress-fill ${fc}" style="width:${pct}%"></div></div>
-      ${pct>=100?'<div style="color:var(--green);font-size:0.85rem;font-weight:600;margin-top:6px">🎉 ¡Meta alcanzada!</div>':`<div style="font-size:0.78rem;color:var(--text3);margin-top:4px">Faltan ${formatCurrency(s.target-s.current)}</div>`}
+      ${pct>=100
+        ? '<div style="color:var(--green);font-size:0.85rem;font-weight:600;margin-top:6px">🎉 ¡Meta alcanzada!</div>'
+        : `<div style="font-size:0.78rem;color:var(--text3);margin-top:4px">Faltan ${formatCurrency(s.target-(s.current||0))}</div>`}
       <div class="saving-actions">
         <button class="btn btn-secondary btn-sm" onclick="editSaving('${s.id}')">✏️ Editar</button>
         <button class="btn btn-danger btn-sm"    onclick="deleteSaving('${s.id}')">🗑️</button>
@@ -737,61 +671,77 @@ window.editSaving = function(id) {
   document.getElementById('savingName').value=s.name;
   document.getElementById('savingEmoji').value=s.emoji;
   document.getElementById('savingTarget').value=s.target;
-  document.getElementById('savingCurrent').value=s.current;
+  document.getElementById('savingCurrent').value=s.current||0;
   openModal('savingModal');
 };
-window.deleteSaving = id => openConfirm('saving', id);
+
+window.deleteSaving = id => {
+  setConfirmText('¿Eliminar este objetivo?','Esta acción no se puede deshacer.');
+  openConfirm('saving', id);
+};
 
 // ============================================================
 // CONFIRM / DELETE
 // ============================================================
-function openConfirm(type,id) { pendingDeleteType=type; pendingDeleteId=id; document.getElementById('confirmDialog').classList.add('open'); }
-window.closeConfirm = () => { pendingDeleteType=null; pendingDeleteId=null; document.getElementById('confirmDialog').classList.remove('open'); };
+function setConfirmText(title, text) {
+  document.getElementById('confirmTitle').textContent = title;
+  document.getElementById('confirmText').textContent  = text;
+}
+function openConfirm(type, id) {
+  pendingDeleteType=type; pendingDeleteId=id;
+  document.getElementById('confirmDialog').classList.add('open');
+}
+window.closeConfirm = () => {
+  pendingDeleteType=null; pendingDeleteId=null;
+  document.getElementById('confirmDialog').classList.remove('open');
+};
 window.confirmDelete = async function() {
-  const btn=document.getElementById('confirmDeleteBtn'); btn.disabled=true; btn.textContent='Eliminando…';
+  const btn=document.getElementById('confirmDeleteBtn');
+  btn.disabled=true; btn.textContent='Eliminando…';
   try {
     if (pendingDeleteType==='transaction') {
-      await fsDelete('transactions',pendingDeleteId);
+      await fsDelete('transactions', pendingDeleteId);
       state.transactions=state.transactions.filter(t=>t.id!==pendingDeleteId);
-      renderTransactions(); renderDashboard(); showToast('Movimiento eliminado','success');
+      renderTransactions(); renderDashboard();
+      showToast('Movimiento eliminado','success');
     } else if (pendingDeleteType==='budget') {
-      await fsDelete('budgets',pendingDeleteId);
+      await fsDelete('budgets', pendingDeleteId);
       state.budgets=state.budgets.filter(b=>b.id!==pendingDeleteId);
-      renderBudget(); showToast('Presupuesto eliminado','success');
+      renderBudget();
+      showToast('Presupuesto eliminado','success');
     } else if (pendingDeleteType==='card') {
-      // Eliminar todas las compras asociadas
-      const relatedPurchases = state.cardPurchases.filter(p=>p.cardId===pendingDeleteId);
-      await Promise.all(relatedPurchases.map(p=>fsDelete('cardPurchases',p.id)));
-      state.cardPurchases = state.cardPurchases.filter(p=>p.cardId!==pendingDeleteId);
-      await fsDelete('creditCards',pendingDeleteId);
+      const related = state.cardPurchases.filter(p=>p.cardId===pendingDeleteId);
+      await Promise.all(related.map(p=>fsDelete('cardPurchases',p.id)));
+      state.cardPurchases=state.cardPurchases.filter(p=>p.cardId!==pendingDeleteId);
+      await fsDelete('creditCards', pendingDeleteId);
       state.creditCards=state.creditCards.filter(c=>c.id!==pendingDeleteId);
-      renderCards(); showToast('Tarjeta eliminada','success');
+      renderCards();
+      showToast('Tarjeta eliminada','success');
     } else if (pendingDeleteType==='purchase') {
-      await fsDelete('cardPurchases',pendingDeleteId);
+      await fsDelete('cardPurchases', pendingDeleteId);
       state.cardPurchases=state.cardPurchases.filter(p=>p.id!==pendingDeleteId);
-      renderCards(); showToast('Compra eliminada','success');
+      renderCards();
+      showToast('Compra eliminada','success');
     } else if (pendingDeleteType==='saving') {
-      await fsDelete('savings',pendingDeleteId);
+      await fsDelete('savings', pendingDeleteId);
       state.savings=state.savings.filter(s=>s.id!==pendingDeleteId);
-      renderSavings(); showToast('Objetivo eliminado','success');
+      renderSavings();
+      showToast('Objetivo eliminado','success');
     }
-  } catch(e){showToast('Error: '+e.message,'error');}
+  } catch(e){ showToast('Error: '+e.message,'error'); }
   btn.disabled=false; btn.textContent='Eliminar';
-  // Restaurar textos por defecto del confirm
-  document.getElementById('confirmTitle').textContent='¿Eliminar registro?';
-  document.getElementById('confirmText').textContent='Esta acción no se puede deshacer.';
   closeConfirm();
 };
 
 // ============================================================
 // TOAST
 // ============================================================
-function showToast(msg,type='success') {
+function showToast(msg, type='success') {
   const icons={success:'✅',error:'❌',warning:'⚠️'};
   const t=document.createElement('div'); t.className=`toast ${type}`;
   t.innerHTML=`<span>${icons[type]}</span> ${msg}`;
   document.getElementById('toastContainer').appendChild(t);
-  setTimeout(()=>{t.style.animation='slideOut 0.3s ease forwards';setTimeout(()=>t.remove(),300);},3000);
+  setTimeout(()=>{ t.style.animation='slideOut 0.3s ease forwards'; setTimeout(()=>t.remove(),300); },3000);
 }
 
 // ============================================================
@@ -804,14 +754,14 @@ window.toggleTheme = function() {
   document.getElementById('themeIcon').textContent=isDark?'🌙':'☀️';
   document.getElementById('themeLabel').textContent=isDark?'Modo oscuro':'Modo claro';
   if (uid) localStorage.setItem('ff_theme_'+uid,next);
-  setTimeout(()=>{renderMonthlyChart();renderCategoryChart();},100);
+  setTimeout(()=>{ renderMonthlyChart(); renderCategoryChart(); },100);
 };
 
 // ============================================================
 // EXPORT CSV
 // ============================================================
 window.exportCSV = function() {
-  if (state.transactions.length===0){showToast('No hay movimientos para exportar.','warning');return;}
+  if (state.transactions.length===0){ showToast('No hay movimientos para exportar.','warning'); return; }
   const headers=['Fecha','Descripción','Tipo','Categoría','Medio de pago','¿Necesario?','Monto'];
   const rows=state.transactions.map(t=>[t.date,`"${t.description}"`,t.type==='income'?'Ingreso':'Gasto',t.category,t.payment,t.necessary==='yes'?'Sí':'No',t.amount]);
   const csv=[headers,...rows].map(r=>r.join(',')).join('\n');
@@ -826,18 +776,15 @@ window.exportCSV = function() {
 // ============================================================
 // UTILS
 // ============================================================
-function formatCurrency(n){return '$'+(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2});}
-function formatDate(d){if(!d)return'';const[y,m,day]=d.split('-');return`${day}/${m}/${y}`;}
+function formatCurrency(n){ return '$'+(n||0).toLocaleString('es-AR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function formatDate(d){ if(!d) return ''; const[y,m,day]=d.split('-'); return `${day}/${m}/${y}`; }
 
-// Init: default date y mes
 document.getElementById('txDate').value=new Date().toISOString().split('T')[0];
 const now=new Date();
 document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 </script>
 
-<!-- ============================================================
-  PANTALLA DE CARGA INICIAL
-  ============================================================ -->
+<!-- LOADING -->
 <div id="loadingScreen" style="position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px;">
   <div style="font-family:'DM Serif Display',serif;font-size:2rem;color:var(--green)">FlowFinance</div>
   <div style="font-size:0.85rem;color:var(--text3)">Cargando tus datos…</div>
@@ -845,17 +792,13 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
   <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
 </div>
 
-<!-- Spinner de operaciones -->
+<!-- SPINNER OPERACIONES -->
 <div id="globalSpinner" style="display:none;position:fixed;bottom:80px;right:24px;z-index:9998;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 16px;font-size:0.82rem;color:var(--text2);box-shadow:var(--shadow);gap:8px;align-items:center;">
   <div style="width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--green);border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0"></div>
   Guardando…
 </div>
 
-<!-- ============================================================
-  APP (oculta hasta que auth confirme usuario)
-  ============================================================ -->
 <div id="appWrapper" style="display:none;min-height:100vh;">
-
 <div class="overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
 
 <!-- SIDEBAR -->
@@ -883,8 +826,7 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/>
             <circle cx="17.5" cy="6.5" r="1" fill="currentColor" stroke="none"/>
-          </svg>
-          Instagram
+          </svg>Instagram
         </a>
         <a href="https://fhighsoftware.com/" target="_blank" rel="noopener"
            style="display:flex;align-items:center;gap:5px;font-size:0.75rem;color:var(--text2);text-decoration:none;transition:color 0.2s"
@@ -892,8 +834,7 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="10"/>
             <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
-          </svg>
-          Nuestra web
+          </svg>Nuestra web
         </a>
       </div>
       <div class="theme-toggle" onclick="toggleTheme()" id="themeToggle">
@@ -911,11 +852,10 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
       <div class="topbar-title" id="pageTitle">Dashboard</div>
     </div>
     <div class="topbar-actions">
-      <!-- Avatar + nombre + logout -->
       <div style="display:flex;align-items:center;gap:10px;">
         <div style="width:32px;height:32px;border-radius:50%;background:var(--green);color:white;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:0.85rem;" id="userAvatar">?</div>
         <span style="font-size:0.82rem;color:var(--text2);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" id="userDisplay"></span>
-        <button class="btn btn-secondary btn-sm" onclick="doLogout()" title="Cerrar sesión">Salir</button>
+        <button class="btn btn-secondary btn-sm" onclick="doLogout()">Salir</button>
       </div>
       <button class="btn btn-primary" onclick="openModal('transactionModal')">＋ Nuevo movimiento</button>
     </div>
@@ -925,24 +865,9 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
   <section class="page active" id="page-dashboard">
     <div id="budgetAlerts"></div>
     <div class="metrics-grid">
-      <div class="metric-card income">
-        <div class="metric-icon">💰</div>
-        <div class="metric-label">Ingresos del mes</div>
-        <div class="metric-value income" id="totalIncome">$0</div>
-        <div class="metric-sub" id="incomeCount">0 transacciones</div>
-      </div>
-      <div class="metric-card expense">
-        <div class="metric-icon">🛒</div>
-        <div class="metric-label">Gastos del mes</div>
-        <div class="metric-value expense" id="totalExpense">$0</div>
-        <div class="metric-sub" id="expenseCount">0 transacciones</div>
-      </div>
-      <div class="metric-card balance">
-        <div class="metric-icon">⚖️</div>
-        <div class="metric-label">Balance actual</div>
-        <div class="metric-value balance" id="totalBalance">$0</div>
-        <div class="metric-sub" id="balanceStatus">Buen estado</div>
-      </div>
+      <div class="metric-card income"><div class="metric-icon">💰</div><div class="metric-label">Ingresos del mes</div><div class="metric-value income" id="totalIncome">$0</div><div class="metric-sub" id="incomeCount">0 transacciones</div></div>
+      <div class="metric-card expense"><div class="metric-icon">🛒</div><div class="metric-label">Gastos del mes</div><div class="metric-value expense" id="totalExpense">$0</div><div class="metric-sub" id="expenseCount">0 transacciones</div></div>
+      <div class="metric-card balance"><div class="metric-icon">⚖️</div><div class="metric-label">Balance actual</div><div class="metric-value balance" id="totalBalance">$0</div><div class="metric-sub" id="balanceStatus">Buen estado</div></div>
     </div>
     <div class="dashboard-grid">
       <div class="chart-card"><div class="chart-title">Evolución mensual</div><div class="chart-canvas-wrapper"><canvas id="monthlyChart"></canvas></div></div>
@@ -968,7 +893,7 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
         <input type="month" class="filter-input" id="filterMonth" onchange="renderTransactions()">
       </div>
       <div class="table-wrapper"><table class="transactions-table"><thead><tr><th>Fecha</th><th>Descripción</th><th>Categoría</th><th>Medio</th><th>Tipo</th><th>¿Necesario?</th><th>Monto</th><th>Acciones</th></tr></thead><tbody id="transactionsBody"></tbody></table></div>
-      <div id="transactionsEmpty" class="empty-state" style="display:none;"><div class="empty-state-icon">📭</div><p>No hay movimientos que coincidan con los filtros.</p></div>
+      <div id="transactionsEmpty" class="empty-state" style="display:none;"><div class="empty-state-icon">📭</div><p>No hay movimientos que coincidan.</p></div>
     </div>
   </section>
 
@@ -981,9 +906,12 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
 
   <!-- TARJETAS -->
   <section class="page" id="page-cards">
-    <div class="section-header"><div class="section-title">Tarjetas &amp; Cuotas</div><button class="btn btn-primary" onclick="openModal('cardModal')">＋ Agregar tarjeta/cuota</button></div>
+    <div class="section-header">
+      <div class="section-title">Tarjetas &amp; Cuotas</div>
+      <button class="btn btn-primary" onclick="openModal('cardModal')">＋ Nueva tarjeta</button>
+    </div>
     <div class="cards-grid" id="cardsGrid"></div>
-    <div id="cardsEmpty" class="empty-state"><div class="empty-state-icon">💳</div><p>No hay compras en cuotas registradas.</p></div>
+    <div id="cardsEmpty" class="empty-state"><div class="empty-state-icon">💳</div><p>No hay tarjetas registradas. Agregá una para empezar.</p></div>
     <div style="margin-top:32px;">
       <div class="section-header"><div class="section-title" style="font-size:1.1rem;">Próximos pagos</div></div>
       <div class="upcoming-list" id="upcomingList"></div>
@@ -1001,6 +929,8 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
 </div><!-- /appWrapper -->
 
 <!-- ===== MODALS ===== -->
+
+<!-- Nuevo movimiento -->
 <div class="modal-overlay" id="transactionModal">
   <div class="modal">
     <div class="modal-header"><div class="modal-title" id="transactionModalTitle">Nuevo movimiento</div><button class="modal-close" onclick="closeModal('transactionModal')">✕</button></div>
@@ -1009,7 +939,7 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
       <div class="form-group"><label class="form-label">Tipo</label><div class="radio-group"><button class="radio-btn income-btn selected" id="typeIncome" onclick="selectType('income')">📈 Ingreso</button><button class="radio-btn expense-btn" id="typeExpense" onclick="selectType('expense')">📉 Gasto</button></div></div>
       <div class="form-group"><label class="form-label">Fecha</label><input type="date" class="form-input" id="txDate"></div>
       <div class="form-group"><label class="form-label">Monto ($)</label><input type="number" class="form-input" id="txAmount" placeholder="0.00" min="0" step="0.01"></div>
-      <div class="form-group"><label class="form-label">Categoría</label><select class="form-input" id="txCategory"><option value="">Seleccionar...</option><option>Alimentación</option><option>Transporte</option><option>Vivienda</option><option>Salud</option><option>Educación</option><option>Entretenimiento</option><option>Ropa</option><option>Servicios</option><option>Tecnología</option><option>Restaurantes</option><option>Viajes</option><option>Mascotas</option><option>Sueldo</option><option>Freelance</option><option>Inversiones</option><option>Otros</option></select></div>
+      <div class="form-group"><label class="form-label">Categoría</label><select class="form-input" id="txCategory"><option value="">Seleccionar...</option><option>Alimentación</option><option>Transporte</option><option>Vivienda</option><option>Salud</option><option>Educación</option><option>Entretenimiento</option><option>Ropa</option><option>Servicios</option><option>Tecnología</option><option>Restaurantes</option><option>Viajes</option><option>Mascotas</option><option>Sueldo</option><option>Freelance</option><option>Inversiones</option><option>Tarjeta de crédito</option><option>Ahorros</option><option>Otros</option></select></div>
       <div class="form-group"><label class="form-label">Medio de pago</label><select class="form-input" id="txPayment"><option value="">Seleccionar...</option><option>Efectivo</option><option>Débito</option><option>Crédito</option><option>Transferencia</option></select></div>
       <div class="form-group"><label class="form-label">¿Era necesario?</label><select class="form-input" id="txNecessary"><option value="yes">✅ Sí</option><option value="no">❌ No</option></select></div>
       <div class="form-group full"><label class="form-label">Descripción</label><input type="text" class="form-input" id="txDescription" placeholder="Ej: Supermercado, Uber, Netflix..."></div>
@@ -1018,32 +948,59 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
   </div>
 </div>
 
+<!-- Presupuesto -->
 <div class="modal-overlay" id="budgetModal">
   <div class="modal">
     <div class="modal-header"><div class="modal-title">Establecer presupuesto</div><button class="modal-close" onclick="closeModal('budgetModal')">✕</button></div>
     <div class="form-grid">
-      <div class="form-group"><label class="form-label">Categoría</label><select class="form-input" id="budgetCategory"><option value="">Seleccionar...</option><option>Alimentación</option><option>Transporte</option><option>Vivienda</option><option>Salud</option><option>Educación</option><option>Entretenimiento</option><option>Ropa</option><option>Servicios</option><option>Tecnología</option><option>Restaurantes</option><option>Viajes</option><option>Mascotas</option><option>Otros</option></select></div>
+      <div class="form-group"><label class="form-label">Categoría</label><select class="form-input" id="budgetCategory"><option value="">Seleccionar...</option><option>Alimentación</option><option>Transporte</option><option>Vivienda</option><option>Salud</option><option>Educación</option><option>Entretenimiento</option><option>Ropa</option><option>Servicios</option><option>Tecnología</option><option>Restaurantes</option><option>Viajes</option><option>Mascotas</option><option>Tarjeta de crédito</option><option>Ahorros</option><option>Otros</option></select></div>
       <div class="form-group"><label class="form-label">Presupuesto mensual ($)</label><input type="number" class="form-input" id="budgetAmount" placeholder="0.00" min="0" step="0.01"></div>
     </div>
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('budgetModal')">Cancelar</button><button class="btn btn-primary" id="saveBudgetBtn" onclick="saveBudget()">Guardar</button></div>
   </div>
 </div>
 
+<!-- Nueva tarjeta (permanente) -->
 <div class="modal-overlay" id="cardModal">
   <div class="modal">
-    <div class="modal-header"><div class="modal-title">Nueva compra en cuotas</div><button class="modal-close" onclick="closeModal('cardModal')">✕</button></div>
+    <div class="modal-header"><div class="modal-title">Nueva tarjeta</div><button class="modal-close" onclick="closeModal('cardModal')">✕</button></div>
     <div class="form-grid">
-      <div class="form-group full"><label class="form-label">Tarjeta / Banco</label><input type="text" class="form-input" id="cardBank" placeholder="Ej: Visa Galicia..."></div>
-      <div class="form-group full"><label class="form-label">Descripción</label><input type="text" class="form-input" id="cardDesc" placeholder="Ej: Notebook HP..."></div>
-      <div class="form-group"><label class="form-label">Monto total ($)</label><input type="number" class="form-input" id="cardTotal" placeholder="0.00" min="0" step="0.01" oninput="calcInstallment()"></div>
-      <div class="form-group"><label class="form-label">Cantidad de cuotas</label><input type="number" class="form-input" id="cardInstallments" placeholder="12" min="1" oninput="calcInstallment()"></div>
-      <div class="form-group"><label class="form-label">Cuotas restantes</label><input type="number" class="form-input" id="cardRemaining" placeholder="12" min="0"></div>
-      <div class="form-group"><label class="form-label">Valor de cuota ($)</label><input type="number" class="form-input" id="cardInstallmentValue" placeholder="Auto-calculado" step="0.01" readonly style="background:var(--bg2)"></div>
+      <div class="form-group full"><label class="form-label">Nombre de la tarjeta</label><input type="text" class="form-input" id="cardName" placeholder="Ej: Visa, Mastercard Black..."></div>
+      <div class="form-group full"><label class="form-label">Banco / Entidad</label><input type="text" class="form-input" id="cardBankName" placeholder="Ej: Galicia, BBVA, Naranja X..."></div>
+      <div class="form-group full">
+        <label class="form-label">Color</label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px;">
+          <input type="color" id="cardColor" value="#1a2436" class="form-input" style="width:44px;height:38px;padding:2px 4px;cursor:pointer;">
+          <button type="button" onclick="document.getElementById('cardColor').value='#1a2436'" style="padding:6px 12px;border-radius:8px;border:2px solid var(--border);background:#1a2436;color:white;cursor:pointer;font-size:0.78rem;font-family:inherit;">Noche</button>
+          <button type="button" onclick="document.getElementById('cardColor').value='#2d7a4f'" style="padding:6px 12px;border-radius:8px;border:2px solid var(--border);background:#2d7a4f;color:white;cursor:pointer;font-size:0.78rem;font-family:inherit;">Verde</button>
+          <button type="button" onclick="document.getElementById('cardColor').value='#2563a8'" style="padding:6px 12px;border-radius:8px;border:2px solid var(--border);background:#2563a8;color:white;cursor:pointer;font-size:0.78rem;font-family:inherit;">Azul</button>
+          <button type="button" onclick="document.getElementById('cardColor').value='#7c3aed'" style="padding:6px 12px;border-radius:8px;border:2px solid var(--border);background:#7c3aed;color:white;cursor:pointer;font-size:0.78rem;font-family:inherit;">Violeta</button>
+          <button type="button" onclick="document.getElementById('cardColor').value='#c0392b'" style="padding:6px 12px;border-radius:8px;border:2px solid var(--border);background:#c0392b;color:white;cursor:pointer;font-size:0.78rem;font-family:inherit;">Rojo</button>
+        </div>
+      </div>
     </div>
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('cardModal')">Cancelar</button><button class="btn btn-primary" id="saveCardBtn" onclick="saveCard()">Guardar</button></div>
   </div>
 </div>
 
+<!-- Nueva compra en cuotas -->
+<div class="modal-overlay" id="purchaseModal">
+  <div class="modal">
+    <div class="modal-header"><div class="modal-title">Nueva compra en cuotas</div><button class="modal-close" onclick="closeModal('purchaseModal')">✕</button></div>
+    <input type="hidden" id="purchaseCardId">
+    <div id="purchaseCardLabel" style="font-size:0.8rem;color:var(--text2);margin-bottom:16px;padding:8px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);"></div>
+    <div class="form-grid">
+      <div class="form-group full"><label class="form-label">Descripción de la compra</label><input type="text" class="form-input" id="purchaseDesc" placeholder="Ej: Notebook HP, Smart TV..."></div>
+      <div class="form-group"><label class="form-label">Monto total ($)</label><input type="number" class="form-input" id="purchaseTotal" placeholder="0.00" min="0" step="0.01" oninput="calcPurchaseInstallment()"></div>
+      <div class="form-group"><label class="form-label">Cantidad de cuotas</label><input type="number" class="form-input" id="purchaseInstallments" placeholder="12" min="1" oninput="calcPurchaseInstallment()"></div>
+      <div class="form-group"><label class="form-label">Cuotas restantes</label><input type="number" class="form-input" id="purchaseRemaining" placeholder="12" min="0"></div>
+      <div class="form-group"><label class="form-label">Valor de cuota ($)</label><input type="number" class="form-input" id="purchaseValue" placeholder="Auto-calculado" step="0.01" readonly style="background:var(--bg2)"></div>
+    </div>
+    <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('purchaseModal')">Cancelar</button><button class="btn btn-primary" id="savePurchaseBtn" onclick="savePurchase()">Guardar</button></div>
+  </div>
+</div>
+
+<!-- Ahorros -->
 <div class="modal-overlay" id="savingModal">
   <div class="modal">
     <div class="modal-header"><div class="modal-title" id="savingModalTitle">Nuevo objetivo de ahorro</div><button class="modal-close" onclick="closeModal('savingModal')">✕</button></div>
@@ -1052,22 +1009,29 @@ document.getElementById('filterMonth').value=`${now.getFullYear()}-${String(now.
       <div class="form-group full"><label class="form-label">Nombre del objetivo</label><input type="text" class="form-input" id="savingName" placeholder="Ej: Viaje a Europa..."></div>
       <div class="form-group"><label class="form-label">Emoji (opcional)</label><input type="text" class="form-input" id="savingEmoji" placeholder="✈️" maxlength="2"></div>
       <div class="form-group"><label class="form-label">Monto objetivo ($)</label><input type="number" class="form-input" id="savingTarget" placeholder="0.00" min="0" step="0.01"></div>
-      <div class="form-group full"><label class="form-label">Progreso actual ($)</label><input type="number" class="form-input" id="savingCurrent" placeholder="0.00" min="0" step="0.01"></div>
+      <div class="form-group full">
+        <label class="form-label">Progreso actual ($)</label>
+        <input type="number" class="form-input" id="savingCurrent" placeholder="0.00" min="0" step="0.01">
+        <div style="font-size:0.75rem;color:var(--text3);margin-top:4px;">Al editar, la diferencia se registrará como ingreso o gasto automáticamente.</div>
+      </div>
     </div>
     <div class="modal-footer"><button class="btn btn-secondary" onclick="closeModal('savingModal')">Cancelar</button><button class="btn btn-primary" id="saveSavingBtn" onclick="saveSaving()">Guardar</button></div>
   </div>
 </div>
 
+<!-- Confirm -->
 <div class="confirm-dialog" id="confirmDialog">
   <div class="confirm-box">
     <div class="confirm-icon">⚠️</div>
-    <div class="confirm-title">¿Eliminar registro?</div>
-    <div class="confirm-text">Esta acción no se puede deshacer.</div>
-    <div class="confirm-actions"><button class="btn btn-secondary" onclick="closeConfirm()">Cancelar</button><button class="btn btn-danger" id="confirmDeleteBtn" onclick="confirmDelete()">Eliminar</button></div>
+    <div class="confirm-title" id="confirmTitle">¿Eliminar registro?</div>
+    <div class="confirm-text"  id="confirmText">Esta acción no se puede deshacer.</div>
+    <div class="confirm-actions">
+      <button class="btn btn-secondary" onclick="closeConfirm()">Cancelar</button>
+      <button class="btn btn-danger" id="confirmDeleteBtn" onclick="confirmDelete()">Eliminar</button>
+    </div>
   </div>
 </div>
 
 <div class="toast-container" id="toastContainer"></div>
-
 </body>
 </html>
