@@ -336,6 +336,7 @@ a { text-decoration: none; color: inherit; }
   width: 200px; height: 200px; border-radius: 50%;
   background: rgba(255,255,255,0.04);
   top: -60px; right: -60px;
+  pointer-events: none;
 }
 .card-bank { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.6; margin-bottom: 20px; }
 .card-amount { font-family: 'DM Serif Display', serif; font-size: 1.8rem; margin-bottom: 4px; }
